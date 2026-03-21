@@ -562,3 +562,7 @@ pub mod fs_base;
 pub mod gs_base;
 pub mod cr2_pagefault;
 pub mod post_heartbeat;
+pub mod pit_mode;
+pub mod rapl_core;
+pub mod perf_global;
+pub mod sysctl_a20;
