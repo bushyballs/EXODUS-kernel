@@ -646,3 +646,7 @@ pub mod msr_rtit_ctl;
 pub mod io_post_code;
 pub mod msr_mc0_misc;
 pub mod msr_xss;
+pub mod msr_feature_control;  // IA32_FEATURE_CONTROL — VMX and SGX feature lock sense
+pub mod lapic_tmr;          // LAPIC Trigger Mode Register — edge vs level trigger sense, ANIMA's interrupt reflex balance
+pub mod lapic_isr;
+pub mod msr_ler_from;
