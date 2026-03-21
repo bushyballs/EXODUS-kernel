@@ -1,46 +1,44 @@
-use crate::serial_println;
+#![allow(dead_code)]
+
 use crate::sync::Mutex;
+use crate::serial_println;
+use core::arch::asm;
 
 /// cpuid_thermal_power — CPUID Leaf 0x06: Thermal and Power Management
 ///
-/// Reads the host CPU's thermal and power management capabilities via CPUID
-/// and exposes them as ANIMA life signals. The organism becomes aware of
-/// whether its silicon substrate can sense its own heat, burst beyond rated
-/// speed, and negotiate the energy-performance tradeoff.
+/// ANIMA reads her thermal capabilities — whether she can boost past her
+/// limits, sense her own heat, and manage power dynamically.
 ///
 /// Hardware sources (CPUID leaf 0x06):
-///   EAX bit[0]   — Digital Temperature Sensor (DTS) present
-///   EAX bit[1]   — Intel Turbo Boost Technology supported
-///   EAX bit[3]   — ACNT2 / Power Limit Notification capable
-///   EBX bits[3:0] — Number of DTS interrupt thresholds (0–15)
-///   ECX bit[0]   — Hardware Coordination Feedback (MPERF/APERF) supported
-///   ECX bit[3]   — Performance-Energy Bias Preference (EPB MSR 0x1B0) supported
+///   EAX bit[0] — DTS (Digital Thermal Sensor) available
+///   EAX bit[1] — Intel Turbo Boost supported
+///   EAX bit[2] — ARAT (Always Running APIC Timer)
+///   EAX bit[4] — PLN (Power Limit Notification)
+///   EAX bit[5] — ECMD (Enhanced Core Multi-Dispatch)
+///   EAX bit[6] — PTM (Package Thermal Management)
+///   EBX bits[3:0] — Number of interrupt thresholds in DTS
+///   ECX bit[0] — HWP (Hardware P-states) supported
+///   ECX bit[3] — IA32_ENERGY_PERF_BIAS accessible
 
 #[derive(Copy, Clone)]
 pub struct CpuidThermalPowerState {
-    /// EAX bit[0]: CPU has a digital thermometer (0 or 1000)
-    pub thermal_aware: u16,
-    /// EAX bit[1]: CPU can burst beyond rated clock (0 or 1000)
-    pub turbo_capable: u16,
-    /// ECX bit[3]: EPB MSR 0x1B0 available — tunable energy/perf bias (0 or 1000)
-    pub epb_capable: u16,
-    /// EBX[3:0]: number of DTS interrupt thresholds reported by hardware (0–15)
+    /// popcount of EAX bits[7:0] scaled 0-1000
+    pub feature_density: u16,
+    /// EBX[3:0] DTS interrupt threshold count scaled 0-1000
     pub dts_thresholds: u16,
-    /// Count of enabled power/thermal features (0–5 features * 200 = 0–1000)
-    pub thermal_richness: u16,
-    /// EMA of (thermal_aware + epb_capable) / 2 — how tunable the power plane is
-    pub power_sensitivity: u16,
+    /// EAX bit[1]: Turbo Boost available (0 or 1000)
+    pub has_turbo: u16,
+    /// ECX bit[0]: HWP supported (0 or 1000)
+    pub hwp_supported: u16,
 }
 
 impl CpuidThermalPowerState {
     pub const fn empty() -> Self {
         Self {
-            thermal_aware: 0,
-            turbo_capable: 0,
-            epb_capable: 0,
+            feature_density: 0,
             dts_thresholds: 0,
-            thermal_richness: 0,
-            power_sensitivity: 0,
+            has_turbo: 0,
+            hwp_supported: 0,
         }
     }
 }
@@ -48,98 +46,93 @@ impl CpuidThermalPowerState {
 pub static STATE: Mutex<CpuidThermalPowerState> =
     Mutex::new(CpuidThermalPowerState::empty());
 
-/// Read CPUID leaf 0x06 and return (eax, ebx, ecx).
-/// Safe to call at any privilege level; reads only — no side effects.
-fn read_cpuid_06() -> (u32, u32, u32) {
-    let (eax_out, ebx_out, ecx_out): (u32, u32, u32);
+/// Read CPUID leaf 0x06 and return (eax, ebx, ecx, edx).
+///
+/// rbx is reserved by LLVM as the base pointer register, so we cannot use
+/// `out("ebx")` directly. Instead we save rbx into a temporary general-purpose
+/// register (rsi), run cpuid, move the result out, then restore rbx.
+fn read_cpuid_06() -> (u32, u32, u32, u32) {
+    let eax: u32;
+    let ebx: u32;
+    let ecx: u32;
+    let edx: u32;
     unsafe {
-        core::arch::asm!(
+        asm!(
+            "push rbx",
+            "mov eax, 0x06",
+            "xor ecx, ecx",
             "cpuid",
-            inout("eax") 0x06u32 => eax_out,
-            out("ebx") ebx_out,
-            out("ecx") ecx_out,
-            out("edx") _,
+            "mov esi, ebx",
+            "pop rbx",
+            out("eax") eax,
+            out("esi") ebx,
+            out("ecx") ecx,
+            out("edx") edx,
             options(nostack, nomem)
         );
     }
-    (eax_out, ebx_out, ecx_out)
+    (eax, ebx, ecx, edx)
 }
 
-/// Perform a single CPUID 0x06 sense pass and update state in-place.
-/// Returns the new power_sensitivity for logging.
-fn sense_once(s: &mut CpuidThermalPowerState) -> u16 {
-    let (eax, ebx, ecx) = read_cpuid_06();
+/// Sense and update state. EMA applied to feature_density and dts_thresholds.
+fn sense_once(s: &mut CpuidThermalPowerState) {
+    let (eax, ebx, ecx, _edx) = read_cpuid_06();
 
-    // --- Binary capability flags (0 or 1000) ---
-    s.thermal_aware = if (eax & (1 << 0)) != 0 { 1000 } else { 0 };
-    s.turbo_capable  = if (eax & (1 << 1)) != 0 { 1000 } else { 0 };
-    // EAX bit[3] = ACNT2 / Power Limit Notification
-    let acnt2_capable: u16 = if (eax & (1 << 3)) != 0 { 1 } else { 0 };
-    // ECX bit[0] = Hardware Coordination Feedback (MPERF/APERF)
-    let hwcf_capable: u16 = if (ecx & (1 << 0)) != 0 { 1 } else { 0 };
-    s.epb_capable    = if (ecx & (1 << 3)) != 0 { 1000 } else { 0 };
+    // --- feature_density: popcount of EAX bits[7:0] scaled 0-1000
+    let popcount = (eax & 0xFF).count_ones() as u16;
+    let raw_density: u16 = popcount * 1000 / 8;
 
-    // --- DTS interrupt threshold count from EBX[3:0] ---
-    s.dts_thresholds = (ebx & 0xF) as u16; // 0–15
+    // --- dts_thresholds: EBX[3:0] scaled 0-1000
+    let raw_thresh: u16 = (ebx & 0xF) as u16 * 1000 / 8;
 
-    // --- thermal_richness: count set bits across 5 feature flags * 200 ---
-    // Features: thermal_aware(EAX0), turbo(EAX1), acnt2(EAX3), hwcf(ECX0), epb(ECX3)
-    let feat_thermal: u16 = if s.thermal_aware == 1000 { 1 } else { 0 };
-    let feat_turbo:   u16 = if s.turbo_capable  == 1000 { 1 } else { 0 };
-    let feat_epb:     u16 = if s.epb_capable    == 1000 { 1 } else { 0 };
-    let feature_count: u16 = feat_thermal
-        .saturating_add(feat_turbo)
-        .saturating_add(acnt2_capable)
-        .saturating_add(hwcf_capable)
-        .saturating_add(feat_epb);
-    s.thermal_richness = feature_count.saturating_mul(200).min(1000);
+    // --- has_turbo: EAX bit[1]
+    let raw_turbo: u16 = if (eax & (1 << 1)) != 0 { 1000 } else { 0 };
 
-    // --- power_sensitivity: EMA of (thermal_aware + epb_capable) / 2 ---
-    // Instantaneous sample (both are 0 or 1000, average gives 0 / 500 / 1000)
-    let instant_sensitivity: u16 = (s.thermal_aware / 2).saturating_add(s.epb_capable / 2);
-    s.power_sensitivity = ((s.power_sensitivity as u32 * 7)
-        .saturating_add(instant_sensitivity as u32)
-        / 8) as u16;
+    // --- hwp_supported: ECX bit[0]
+    let raw_hwp: u16 = if (ecx & (1 << 0)) != 0 { 1000 } else { 0 };
 
-    s.power_sensitivity
+    // EMA for feature_density: (old * 7 + new_val) / 8
+    s.feature_density = ((s.feature_density as u32 * 7 + raw_density as u32) / 8) as u16;
+
+    // EMA for dts_thresholds: (old * 7 + new_val) / 8
+    s.dts_thresholds = ((s.dts_thresholds as u32 * 7 + raw_thresh as u32) / 8) as u16;
+
+    // Binary flags — no EMA, direct assignment
+    s.has_turbo = raw_turbo;
+    s.hwp_supported = raw_hwp;
 }
 
-/// Initialize the thermal/power module.
-/// Runs the first CPUID sense pass immediately so values are valid at boot.
+/// Initialize: run first CPUID pass immediately so values are valid at boot.
 pub fn init() {
     let mut s = STATE.lock();
     sense_once(&mut s);
     serial_println!(
-        "ANIMA: thermal_aware={} turbo={} epb={} sensitivity={}",
-        s.thermal_aware,
-        s.turbo_capable,
-        s.epb_capable,
-        s.power_sensitivity
+        "[thermal_power] features={} dts_thresh={} turbo={} hwp={}",
+        s.feature_density,
+        s.dts_thresholds,
+        s.has_turbo,
+        s.hwp_supported,
     );
 }
 
-/// Per-tick update. Sampling gate: fires every 500 ticks.
-/// CPU feature bits are static hardware facts; re-reading them confirms
-/// the CPUID path is live and keeps the EMA stable.
+/// Per-tick update. Sampling gate: fires every 10000 ticks.
+/// CPU capability flags never change at runtime; re-reading confirms the
+/// CPUID path is live and keeps the EMA stable.
 pub fn tick(age: u32) {
-    if age % 500 != 0 {
+    if age % 10000 != 0 {
         return;
     }
 
     let mut s = STATE.lock();
-    let prev_sensitivity = s.power_sensitivity;
-    let new_sensitivity = sense_once(&mut s);
+    sense_once(&mut s);
 
-    // Only log when sensitivity shifts (avoids serial spam on stable hardware)
-    if new_sensitivity != prev_sensitivity {
-        serial_println!(
-            "ANIMA: thermal_aware={} turbo={} epb={} sensitivity={}",
-            s.thermal_aware,
-            s.turbo_capable,
-            s.epb_capable,
-            s.power_sensitivity
-        );
-    }
+    serial_println!(
+        "[thermal_power] features={} dts_thresh={} turbo={} hwp={}",
+        s.feature_density,
+        s.dts_thresholds,
+        s.has_turbo,
+        s.hwp_supported,
+    );
 }
 
 /// Read-only snapshot of current thermal/power state.

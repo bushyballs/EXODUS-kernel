@@ -673,3 +673,5 @@ pub mod msr_pkg_power_info;
 pub mod msr_xfd_err;
 pub mod msr_pp0_policy;
 pub mod cpuid_topology;
+pub mod cpuid_monitor_mwait;
+pub mod msr_pp1_policy;
