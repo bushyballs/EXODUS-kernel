@@ -764,3 +764,7 @@ pub mod msr_perf_fixed_ctrl_sense;
 pub mod msr_perfevtsel0_sense;
 pub mod msr_perfevtsel1_sense;
 pub mod msr_offcore_rsp0;
+pub mod msr_offcore_rsp1;
+pub mod msr_pebs_ld_lat;
+pub mod msr_rtit_ctl_sense;
+pub mod msr_ia32_u_cet_sense;
