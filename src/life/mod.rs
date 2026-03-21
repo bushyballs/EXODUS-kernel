@@ -594,3 +594,7 @@ pub mod cpuid_monitor;
 pub mod cpuid_l2_cache;
 pub mod cpuid_sgx;
 pub mod ioapic_version;
+pub mod cpuid_processor_trace;
+pub mod cpuid_hybrid;
+pub mod cpuid_dca;
+pub mod cpuid_qos;
