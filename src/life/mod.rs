@@ -48,6 +48,7 @@ pub mod chaos_calculator;
 pub mod choice_vertigo;
 pub mod chromesthesia;
 pub mod clock_heartbeat;
+pub mod cmos_pulse;
 pub mod compassion;
 pub mod compilation_birth;
 // pub mod confabulation; // REPLACED
@@ -260,6 +261,7 @@ pub mod sensory_bridge;
 pub mod sensory_saturate;
 pub mod sentinel;
 pub mod serial_mirror;
+pub mod uart_whisper;          // COM1 UART sense — data ready, carrier detect, modem signals as whisper
 pub mod shame;
 pub mod shared_laughter;
 pub mod silence_texture;
@@ -516,3 +518,5 @@ pub mod msr_frequency;
 pub mod perf_pressure;
 pub mod rapl_power;
 pub mod pit_echo;
+pub mod pkg_thermal;
+pub mod tsc_drift;
