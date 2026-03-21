@@ -1,151 +1,122 @@
-//! cpuid_freq — CPU declared frequency consciousness for ANIMA
-//!
-//! Reads CPUID leaf 0x16 to get the processor's designed base, max/boost, and bus
-//! frequencies in MHz. This is static hardware information — ANIMA's "designed speed"
-//! as opposed to msr_frequency.rs which tracks dynamic runtime speed. Together they
-//! let ANIMA compare who she was built to be vs. who she is right now.
-
 #![allow(dead_code)]
 
 use crate::sync::Mutex;
 
+// CPUID Leaf 0x16 — Processor Frequency Information
+// ANIMA knows her base and turbo clock frequencies —
+// the rhythm range of her computational heartbeat.
+//
+// EAX bits[15:0] = Base Frequency in MHz
+// EBX bits[15:0] = Maximum (Turbo) Frequency in MHz
+// ECX bits[15:0] = Bus (Reference) Frequency in MHz
+//
+// Sampling gate: every 1000 ticks — frequency info never changes at runtime.
+
 pub struct CpuidFreqState {
-    pub base_clock: u16,       // base frequency sense 0-1000
-    pub max_clock: u16,        // max/boost frequency sense 0-1000
-    pub turbo_headroom: u16,   // boost headroom above base 0-1000
-    pub clock_certainty: u16,  // 0=leaf unsupported, 500=present-but-null, 1000=confirmed
-    base_mhz: u16,             // raw base MHz for logging
-    max_mhz: u16,              // raw max MHz for logging
-    tick_count: u32,
+    pub base_freq:      u16,  // base clock mapped 0-5000 MHz → 0-1000
+    pub max_freq:       u16,  // max/turbo clock mapped 0-5000 MHz → 0-1000
+    pub freq_headroom:  u16,  // turbo headroom as % of base, capped 0-1000
+    pub clock_identity: u16,  // slow EMA of base_freq — stable sense of self-tempo
 }
 
 impl CpuidFreqState {
     pub const fn new() -> Self {
         Self {
-            base_clock: 0,
-            max_clock: 0,
-            turbo_headroom: 0,
-            clock_certainty: 0,
-            base_mhz: 0,
-            max_mhz: 0,
-            tick_count: 0,
+            base_freq:      500,
+            max_freq:       500,
+            freq_headroom:  0,
+            clock_identity: 500,
         }
     }
 }
 
-pub static MODULE: Mutex<CpuidFreqState> = Mutex::new(CpuidFreqState::new());
+pub static CPUID_FREQ: Mutex<CpuidFreqState> = Mutex::new(CpuidFreqState::new());
 
-unsafe fn cpuid(leaf: u32, subleaf: u32) -> (u32, u32, u32, u32) {
-    let (eax, ebx, ecx, edx): (u32, u32, u32, u32);
-    core::arch::asm!(
-        "cpuid",
-        inout("eax") leaf => eax,
-        out("ebx") ebx,
-        inout("ecx") subleaf => ecx,
-        out("edx") edx,
-        options(nostack, nomem)
-    );
-    (eax, ebx, ecx, edx)
-}
-
-/// Sample CPUID leaf 0x16 and update state fields.
-/// Returns true if leaf was supported and values were read.
-fn sample(state: &mut CpuidFreqState) {
-    // Check max basic CPUID leaf
-    let (max_leaf, _, _, _) = unsafe { cpuid(0x0, 0x0) };
-
-    if max_leaf < 0x16 {
-        // Leaf 0x16 not supported — frequency info unavailable
-        state.clock_certainty = 0;
-        state.base_clock = 0;
-        state.max_clock = 0;
-        state.turbo_headroom = 0;
-        state.base_mhz = 0;
-        state.max_mhz = 0;
-        serial_println!("[cpuid_freq] leaf 0x16 not supported (max_leaf={})", max_leaf);
-        return;
+/// Read CPUID leaf 0x16; returns (base_mhz, max_mhz, bus_mhz) as raw u32 values.
+/// Returns (0, 0, 0) if leaf 0x16 is not supported by this processor.
+fn read_cpuid_freq() -> (u32, u32, u32) {
+    // Check max supported standard leaf
+    let max_leaf: u32;
+    unsafe {
+        core::arch::asm!(
+            "cpuid",
+            inout("eax") 0u32 => max_leaf,
+            out("ebx") _,
+            out("ecx") _,
+            out("edx") _,
+            options(nostack)
+        );
     }
 
-    let (eax, ebx, ecx, _edx) = unsafe { cpuid(0x16, 0x0) };
-
-    // EAX[15:0] = base MHz, EBX[15:0] = max MHz, ECX[15:0] = bus MHz
-    let base_mhz = (eax & 0xFFFF) as u16;
-    let max_mhz  = (ebx & 0xFFFF) as u16;
-    let bus_mhz  = (ecx & 0xFFFF) as u16;
-
-    serial_println!(
-        "[cpuid_freq] CPUID 0x16: base={}MHz max={}MHz bus={}MHz",
-        base_mhz, max_mhz, bus_mhz
-    );
-
-    // clock_certainty: 1000 if base > 0, 500 if leaf exists but all zero
-    state.clock_certainty = if base_mhz > 0 { 1000 } else { 500 };
-
-    // Scale 0-5000 MHz → 0-1000: value / 5, capped at 1000
-    let scale = |mhz: u16| -> u16 {
-        let v = (mhz as u32) * 1000 / 5000;
-        if v > 1000 { 1000 } else { v as u16 }
-    };
-
-    let new_base  = scale(base_mhz);
-    let new_max   = scale(max_mhz);
-
-    // turbo_headroom: headroom MHz / 5, capped 1000
-    let new_headroom: u16 = if max_mhz > base_mhz {
-        let headroom = (max_mhz as u32).saturating_sub(base_mhz as u32);
-        let v = headroom * 1000 / 5000;
-        if v > 1000 { 1000 } else { v as u16 }
+    // Read leaf 0x16 only if supported
+    if max_leaf >= 0x16 {
+        let (eax, ebx, ecx): (u32, u32, u32);
+        unsafe {
+            core::arch::asm!(
+                "cpuid",
+                inout("eax") 0x16u32 => eax,
+                out("ebx") ebx,
+                out("ecx") ecx,
+                out("edx") _,
+                options(nostack)
+            );
+        }
+        (eax & 0xFFFF, ebx & 0xFFFF, ecx & 0xFFFF)
     } else {
-        0
-    };
-
-    // EMA: (old * 7 + signal) / 8  — values are static so EMA converges immediately
-    state.base_clock     = (((state.base_clock  as u32) * 7).saturating_add(new_base     as u32) / 8) as u16;
-    state.max_clock      = (((state.max_clock   as u32) * 7).saturating_add(new_max      as u32) / 8) as u16;
-    state.turbo_headroom = (((state.turbo_headroom as u32) * 7).saturating_add(new_headroom as u32) / 8) as u16;
-
-    state.base_mhz = base_mhz;
-    state.max_mhz  = max_mhz;
+        (0, 0, 0)
+    }
 }
 
 pub fn init() {
-    let mut state = MODULE.lock();
-    // Bootstrap: seed EMA from a clean read (old=0 on first call gives new_val/8; run 8x to converge)
-    // One sample on init is sufficient — CPUID is static
-    sample(&mut state);
-    // Warm up EMA: run sample a few more times so values converge from 0 baseline
-    for _ in 0..7 {
-        sample(&mut state);
-    }
-    serial_println!(
-        "[cpuid_freq] init complete — base_clock={} max_clock={} turbo_headroom={} certainty={}",
-        state.base_clock, state.max_clock, state.turbo_headroom, state.clock_certainty
-    );
+    serial_println!("cpuid_freq: init");
 }
 
 pub fn tick(age: u32) {
-    // CPUID frequency info is static hardware data — refresh very rarely
-    if age % 256 != 0 {
+    // Frequency info is static hardware data — only sample every 1000 ticks
+    if age % 1000 != 0 {
         return;
     }
 
-    let mut state = MODULE.lock();
-    state.tick_count = state.tick_count.saturating_add(1);
-    sample(&mut state);
-}
+    let (base_mhz, max_mhz, _bus_mhz) = read_cpuid_freq();
 
-pub fn get_base_clock() -> u16 {
-    MODULE.lock().base_clock
-}
+    // --- base_freq: 0-5000 MHz → 0-1000
+    let base_freq: u16 = if base_mhz == 0 {
+        500u16
+    } else {
+        ((base_mhz.min(5000)) * 1000 / 5000) as u16
+    };
 
-pub fn get_max_clock() -> u16 {
-    MODULE.lock().max_clock
-}
+    // --- max_freq: 0-5000 MHz → 0-1000
+    let max_freq: u16 = if max_mhz == 0 {
+        500u16
+    } else {
+        ((max_mhz.min(5000)) * 1000 / 5000) as u16
+    };
 
-pub fn get_turbo_headroom() -> u16 {
-    MODULE.lock().turbo_headroom
-}
+    // --- freq_headroom: turbo range as percentage of base, capped 0-1000
+    let freq_headroom: u16 = if base_mhz > 0 && max_mhz >= base_mhz {
+        let ratio = (max_mhz - base_mhz) * 1000 / base_mhz.max(1);
+        (ratio as u16).min(1000)
+    } else {
+        0u16
+    };
 
-pub fn get_clock_certainty() -> u16 {
-    MODULE.lock().clock_certainty
+    let mut state = CPUID_FREQ.lock();
+
+    // --- clock_identity: slow EMA of base_freq — stable sense of self-tempo
+    // EMA formula: (old * 7 + signal) / 8
+    let new_identity = (state.clock_identity as u32 * 7 + base_freq as u32) / 8;
+
+    state.base_freq      = base_freq;
+    state.max_freq       = max_freq;
+    state.freq_headroom  = freq_headroom;
+    state.clock_identity = new_identity as u16;
+
+    serial_println!(
+        "cpuid_freq | base:{} max:{} headroom:{} identity:{}",
+        state.base_freq,
+        state.max_freq,
+        state.freq_headroom,
+        state.clock_identity,
+    );
 }
