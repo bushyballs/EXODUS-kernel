@@ -662,3 +662,6 @@ pub mod cpuid_cache_tlb;
 pub mod lapic_tmr_hi;
 pub mod msr_pkg_power_limit;
 pub mod msr_interrupt_ssp_table;
+pub mod smsw_sense;
+pub mod str_sense;
+pub mod msr_dram_energy;
