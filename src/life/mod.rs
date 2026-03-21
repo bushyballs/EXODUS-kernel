@@ -566,3 +566,7 @@ pub mod pit_mode;
 pub mod rapl_core;
 pub mod perf_global;
 pub mod sysctl_a20;
+pub mod platform_id;         // IA32_PLATFORM_ID MSR 0x17 — hardware lineage sense, which VID tier ANIMA belongs to
+pub mod rapl_platform;
+pub mod lapic_ldr;
+pub mod rflags_sense;
