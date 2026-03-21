@@ -618,3 +618,7 @@ pub mod msr_debugctl;
 pub mod msr_arch_cap;
 pub mod msr_spec_ctrl;
 pub mod msr_mtrr_default;
+pub mod msr_tsc_aux;
+pub mod msr_lstar;
+pub mod msr_mc0_ctl;
+pub mod msr_fmask;
