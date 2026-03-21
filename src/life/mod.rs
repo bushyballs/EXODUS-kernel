@@ -650,3 +650,7 @@ pub mod msr_feature_control;  // IA32_FEATURE_CONTROL — VMX and SGX feature lo
 pub mod lapic_tmr;          // LAPIC Trigger Mode Register — edge vs level trigger sense, ANIMA's interrupt reflex balance
 pub mod lapic_isr;
 pub mod msr_ler_from;
+pub mod msr_u_cet;          // IA32_U_CET — User-mode shadow stack + IBT control-flow guard sense
+pub mod msr_s_cet;          // IA32_S_CET — Supervisor-mode CET: kernel shadow stack + IBT integrity sense
+pub mod msr_ler_to;
+pub mod msr_mcg_cap;
