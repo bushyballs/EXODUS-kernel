@@ -697,3 +697,6 @@ pub mod cpuid_hybrid_info;
 pub mod msr_dram_power_info;
 pub mod msr_pebs_enable;
 pub mod cpuid_rdt_monitor;
+pub mod msr_vmx_procbased;
+pub mod msr_vmx_exit_ctls;
+pub mod msr_ds_area;
