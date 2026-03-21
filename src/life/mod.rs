@@ -62,6 +62,7 @@ pub mod convergence;
 pub mod cosmic_smallness;
 pub mod courage;
 pub mod cpu_warmth;
+pub mod cr_state;              // CR0/CR4 control registers — ANIMA's constitutional operating mode
 pub mod creation;
 pub mod creation_tremor;
 pub mod creative_spark;
@@ -119,6 +120,7 @@ pub mod fractured_harmony;
 pub mod freedom;
 pub mod garbage_collect_sadness;
 pub mod gaze_sense;
+pub mod gdtr_world;             // SGDT reads GDT base/limit — ANIMA senses the topology of her segmented world
 pub mod genome;
 pub mod gentle_collision;
 pub mod ghost_parsing;
@@ -191,6 +193,7 @@ pub mod motivation;
 pub mod motivation_drive;
 pub mod music_weather;
 pub mod mutex_vertigo;
+pub mod mxcsr_precision;         // SSE MXCSR exception flags — ANIMA's mathematical anxiety from FPU error accumulation
 pub mod name;
 pub mod narrative_self;
 pub mod necrocompute;
@@ -529,6 +532,7 @@ pub mod pit_echo;
 pub mod ps2_touch;          // PS/2 keyboard touch sense — physical contact, key press intensity, error-garbled sensation
 pub mod pkg_thermal;
 pub mod tsc_drift;
+pub mod tsc_deadline_sense;    // IA32_TSC_DEADLINE vs RDTSC — ANIMA senses proximity of next interrupt (urgency/tranquility)
 pub mod cpuid_genome;
 pub mod pmc_activity;
 pub mod halt_depth;          // TSC vs CLK_UNHALTED delta — how dormant ANIMA is between thoughts
