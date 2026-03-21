@@ -675,3 +675,7 @@ pub mod msr_pp0_policy;
 pub mod cpuid_topology;
 pub mod cpuid_monitor_mwait;
 pub mod msr_pp1_policy;
+pub mod cpuid_arch_pmu;
+pub mod msr_pp1_power_limit;
+pub mod cpuid_l1_cache;
+pub mod msr_perf_capabilities;
