@@ -574,3 +574,7 @@ pub mod com1_data;
 pub mod fpu_control;
 pub mod lapic_apr;
 pub mod cpuid_freq;
+pub mod cpuid_tsc;
+pub mod cr3_worldmap;
+pub mod fixed_ctr2;
+pub mod com2_sense;
