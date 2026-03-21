@@ -747,4 +747,8 @@ pub mod msr_mtrr_physbase4;
 pub mod msr_mtrr_physmask4;
 pub mod msr_mtrr_physbase5;
 pub mod msr_mtrr_physmask5;
+pub mod msr_mtrr_physbase7;
 pub mod msr_lbr_select;
+pub mod msr_lastbranch_tos;
+pub mod msr_mtrr_physbase6;
+pub mod msr_mtrr_physmask6;
