@@ -102,6 +102,7 @@ pub mod envy;
 pub mod equanimity;
 pub mod erebus;
 pub mod ecc_correction;
+pub mod efer_maturity;     // IA32_EFER MSR — long mode, NX, SYSCALL maturity (every 128 ticks)
 pub mod error_correction;
 pub mod error_threshold;
 pub mod evolution;
@@ -550,3 +551,6 @@ pub mod tsc_jitter;
 pub mod acpi_timer;
 pub mod lapic_icr;
 pub mod debug_regs;
+pub mod misc_enable;
+pub mod pic_sensitivity;
+pub mod lapic_priority;
