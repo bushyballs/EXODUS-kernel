@@ -512,3 +512,7 @@ pub mod ioapic_resonance;
 pub mod hpet_timewarp;
 pub mod apic_vibrancy;
 pub mod thermal_light;
+pub mod msr_frequency;
+pub mod perf_pressure;
+pub mod rapl_power;
+pub mod pit_echo;
