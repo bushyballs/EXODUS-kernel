@@ -788,3 +788,6 @@ pub mod msr_ia32_apic_base;
 pub mod msr_ia32_mtrrcap;
 pub mod msr_ia32_fs_base;
 pub mod msr_ia32_gs_base;
+pub mod msr_mcg_status;
+pub mod msr_ia32_perf_ctl;
+pub mod msr_rapl_power_unit;
