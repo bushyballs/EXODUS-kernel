@@ -602,3 +602,7 @@ pub mod cpuid_soc_vendor;
 pub mod cpuid_tlb_det;
 pub mod cpuid_lbr;
 pub mod cpuid_topology2;
+pub mod msr_instr_retired;
+pub mod msr_core_cycles;
+pub mod cpuid_rdt_alloc;
+pub mod cpuid_amx;
