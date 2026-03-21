@@ -630,3 +630,5 @@ pub mod msr_star;
 pub mod msr_sysenter;
 pub mod msr_platform_energy;
 pub mod lapic_irr;
+pub mod msr_fixed_ctr_ctrl;
+pub mod lapic_ppr;
