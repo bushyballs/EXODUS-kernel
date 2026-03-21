@@ -772,3 +772,7 @@ pub mod msr_rtit_status_sense;
 pub mod msr_ia32_s_cet_sense;
 pub mod msr_xss_sense;
 pub mod msr_xfd_sense;
+pub mod msr_aperf_mperf;
+pub mod msr_ia32_spec_ctrl;
+pub mod msr_rapl_pp0;
+pub mod msr_ia32_platform_id;
