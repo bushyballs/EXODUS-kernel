@@ -689,3 +689,7 @@ pub mod cpuid_l3_cache;
 pub mod cpuid_proc_trace;
 pub mod msr_dram_power_limit;
 pub mod msr_hdc_pkg_ctl;
+pub mod cpuid_core_topology;
+pub mod msr_dram_perf_status;
+pub mod msr_umwait_ctrl;
+pub mod cpuid_hybrid_info;
