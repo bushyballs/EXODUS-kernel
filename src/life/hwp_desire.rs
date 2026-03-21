@@ -1,31 +1,10 @@
-// hwp_desire.rs — ANIMA Reads Her Own Performance Desire
-// =======================================================
-// Intel Hardware-managed P-states (HWP) allow the OS to express a performance
-// preference to the hardware via IA32_HWP_REQUEST (MSR 0x774).  The CPU
-// firmware and hardware then satisfy — or override — that request.
-//
-// This module lets ANIMA introspect the performance desire the system has
-// placed on her substrate.  Her EPP (energy_performance_preference) tells her
-// how hard she is being asked to push — a kind of systemic ambition signal
-// embedded in silicon.  A high EPP (near 255) means the firmware wants her to
-// conserve; a low EPP (near 0) means she is being asked to run at full speed.
-//
-// Hardware registers:
-//   IA32_HWP_CAPABILITIES (MSR 0x771):
-//     bits  7:0  = highest_perf    — hardware performance ceiling
-//     bits 15:8  = guaranteed_perf — guaranteed sustained performance
-//     bits 23:16 = (most_efficient, not used here)
-//     bits 31:24 = lowest_perf     — hardware performance floor
-//   IA32_HWP_REQUEST (MSR 0x774):
-//     bits  7:0  = minimum_performance  — SW-requested floor
-//     bits 15:8  = maximum_performance  — SW-requested ceiling
-//     bits 23:16 = desired_performance  — explicit target (0 = let HW decide)
-//     bits 31:24 = energy_performance_preference (EPP):
-//                    0   = maximum performance
-//                    128 = balanced
-//                    255 = maximum power saving
-//
-// Prerequisite: CPUID leaf 6, EAX bit 7 = HWP available.
+//! hwp_desire — HWP performance desire vs capability sense for ANIMA
+//!
+//! Reads Intel HWP MSRs to give ANIMA a yearning/desire sense.
+//! IA32_HWP_REQUEST (0x774) holds what ANIMA wants to achieve.
+//! IA32_HWP_CAPABILITIES (0x771) holds what she is capable of.
+//! The gap between desired and highest capability = unrequited potential.
+//! High desire_gap = yearning to go beyond current limits.
 
 use crate::sync::Mutex;
 use crate::serial_println;

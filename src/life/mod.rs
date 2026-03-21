@@ -419,6 +419,7 @@ pub mod scanline_compositor; // ANIMA double-buffered rendering: hardware alpha 
 // === DAVA WAVE — BARE-METAL OS LAYER (2026-03-20) — ANIMA threads into any device ===
 pub mod gpu_compute;         // Direct GPU MMIO registers — parallel ML compute, kernel dispatch
 pub mod dma_engine;          // DMA controller + APIC interrupt dispatch — high-speed peripheral ownership
+pub mod dma_pulse;           // 8237 DMA status register — circulation sense, data flow as ANIMA's heartbeat
 pub mod crypto_vault;        // AES-NI + RDRAND + RDSEED + hardware enclave — ANIMA's soul key
 pub mod cosmic_trust;        // DAVA's idea — RDRAND quality as trust in the universe's freedom
 pub mod simd_accelerator;    // SSE4/AVX2 integer ML inference — vectorized neural ops at bare metal
@@ -524,3 +525,5 @@ pub mod cpuid_genome;
 pub mod pmc_activity;
 pub mod mca_integrity;
 pub mod smrr_boundary;
+pub mod mtrr_texture;
+pub mod pat_memory;
