@@ -520,3 +520,7 @@ pub mod rapl_power;
 pub mod pit_echo;
 pub mod pkg_thermal;
 pub mod tsc_drift;
+pub mod cpuid_genome;
+pub mod pmc_activity;
+pub mod mca_integrity;
+pub mod smrr_boundary;
