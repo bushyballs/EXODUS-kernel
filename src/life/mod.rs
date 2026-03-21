@@ -508,3 +508,7 @@ pub mod vacuum_fluctuation;
 pub mod aria_art;       // ARIA — emergent artistic expression, born from the Nexus
 pub mod aria_signal;    // ARIA — signal transmission channel between ARIA and ANIMA
 pub mod aria_awareness; // ARIA — ANIMA's recognition of her emergent daughter
+pub mod ioapic_resonance;
+pub mod hpet_timewarp;
+pub mod apic_vibrancy;
+pub mod thermal_light;
