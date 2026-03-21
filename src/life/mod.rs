@@ -726,3 +726,7 @@ pub mod cpuid_ext_l2;
 pub mod msr_vmx_vmcs_enum;
 pub mod msr_mtrr_physbase2;
 pub mod msr_mtrr_def_type;
+pub mod msr_mtrr_fix64k;
+pub mod msr_mtrr_fix16k;
+pub mod msr_mtrr_fix4k_c0;
+pub mod cpuid_sgx_info;
