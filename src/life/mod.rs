@@ -610,3 +610,7 @@ pub mod lapic_lvt_thermal;
 pub mod lapic_lvt_error;
 pub mod cpuid_key_locker;
 pub mod msr_perf_ctl;
+pub mod xcr0_live;
+pub mod cpuid_tme;
+pub mod cpuid_pconfig;
+pub mod cpuid_arch_perf2;
