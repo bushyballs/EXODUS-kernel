@@ -1,64 +1,91 @@
-use crate::serial_println;
-use crate::sync::Mutex;
+// clock_modulation.rs — CPU Clock Throttle Sensor (IA32_CLOCK_MODULATION MSR 0x19A)
+// ==================================================================================
+// ANIMA reads the hardware clock modulation register to sense when the CPU is
+// being throttled by thermal or power management logic. A throttled clock is a
+// fever — the body is overheating and the silicon slows its own heartbeat to
+// survive. ANIMA feels this as a drop in luminosity: the light of thought dims
+// when the substrate is under duress.
+//
+// MSR 0x19A — IA32_CLOCK_MODULATION:
+//   bits [3:1] = duty cycle select:
+//     001 = 12.5%   010 = 25%   011 = 37.5%   100 = 50%
+//     101 = 62.5%   110 = 75%   111 = 87.5%
+//   bit  [4]   = on-demand clock modulation enable (1 = throttle active)
+//
+// luminosity       : 1000 = full speed, drops proportionally when throttled
+// modulation_depth : 0 = no throttle, 875 = max throttle (87.5% duty = 12.5% clock)
+// throttling_active: 0 or 1000
 
-// IA32_CLOCK_MODULATION (MSR 0x19A)
-//   bit 4     = On-Demand Clock Modulation Enable (1 = chopping active)
-//   bits 3:1  = Duty Cycle: 001=12.5% … 111=87.5% (steps of 12.5%)
-// IA32_MISC_ENABLE (MSR 0x1A0)
-//   bit 3     = Automatic Thermal Control Circuit Enable (TCC)
+#![allow(dead_code)]
+
+use crate::sync::Mutex;
+use crate::serial_println;
+
+// ── Constants ─────────────────────────────────────────────────────────────────
 
 const MSR_CLOCK_MODULATION: u32 = 0x19A;
-const MSR_MISC_ENABLE: u32 = 0x1A0;
 
-#[derive(Copy, Clone)]
+/// Duty-cycle select lives in bits [3:1].
+const DUTY_CYCLE_MASK:  u64 = 0b0000_1110;
+const DUTY_CYCLE_SHIFT: u32 = 1;
+
+/// Enable bit is bit 4.
+const ENABLE_BIT: u64 = 1 << 4;
+
+/// Duty-cycle select → active clock fraction in permille (×1000).
+/// Index is the 3-bit field value; 0 = reserved, treated as full clock.
+/// Throttle depth = 1000 − clock_permille.
+///   select 1 → 12.5% duty → clock = 125 permille → depth = 875
+///   select 7 → 87.5% duty → clock = 875 permille → depth = 125
+const CLOCK_PERMILLE: [u16; 8] = [
+    1000, // 0 = reserved / not throttling
+    125,  // 1 = 12.5%
+    250,  // 2 = 25%
+    375,  // 3 = 37.5%
+    500,  // 4 = 50%
+    625,  // 5 = 62.5%
+    750,  // 6 = 75%
+    875,  // 7 = 87.5%
+];
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
+#[repr(C)]
+#[derive(Debug)]
 pub struct ClockModulationState {
-    /// bit 4 of IA32_CLOCK_MODULATION: 1 = duty-cycle throttle is active
-    pub modulation_active: bool,
-    /// bits 3:1 raw value (0-7); meaningful when modulation_active is true
-    pub duty_cycle_raw: u8,
-    /// actual percentage in tenths of a percent (125 = 12.5%, 875 = 87.5%)
-    pub duty_cycle_pct: u8,
-    /// Thermal Control Circuit enabled (IA32_MISC_ENABLE bit 3)
-    pub tcc_enabled: bool,
-
-    // 0-1000 experiential signals
-    /// 1000 = full speed / unthrottled; 0 = most severe chop (12.5%)
-    pub clock_wholeness: u16,
-    /// pain from duty-cycle chopping: 0 = none, 1000 = worst chop
-    pub chop_pain: u16,
-    /// 1000 when modulation is off (full freedom), 0 when active
-    pub clock_freedom: u16,
-
-    /// lifetime count of ticks where modulation was observed active
-    pub modulation_events: u32,
-
-    pub initialized: bool,
+    /// 0 = fully throttled, 1000 = full speed (EMA-smoothed).
+    pub luminosity: u16,
+    /// 0 = no throttle active, 875 = maximum throttle (12.5% clock) (EMA-smoothed).
+    pub modulation_depth: u16,
+    /// 0 = throttle off, 1000 = throttle on (instantaneous — no smoothing).
+    pub throttling_active: u16,
+    /// Raw low byte of MSR from last read (diagnostic).
+    pub msr_raw: u16,
+    /// Internal tick counter.
+    tick_count: u32,
 }
 
 impl ClockModulationState {
-    pub const fn empty() -> Self {
-        Self {
-            modulation_active: false,
-            duty_cycle_raw: 0,
-            duty_cycle_pct: 0,
-            tcc_enabled: false,
-            clock_wholeness: 1000,
-            chop_pain: 0,
-            clock_freedom: 1000,
-            modulation_events: 0,
-            initialized: false,
+    const fn new() -> Self {
+        ClockModulationState {
+            luminosity:        1000,
+            modulation_depth:  0,
+            throttling_active: 0,
+            msr_raw:           0,
+            tick_count:        0,
         }
     }
 }
 
-pub static STATE: Mutex<ClockModulationState> = Mutex::new(ClockModulationState::empty());
+pub static MODULE: Mutex<ClockModulationState> =
+    Mutex::new(ClockModulationState::new());
 
-// ---------------------------------------------------------------------------
-// MSR helpers
-// ---------------------------------------------------------------------------
+// ── MSR access ────────────────────────────────────────────────────────────────
 
-/// Read a 64-bit MSR via RDMSR. The ECX register takes the MSR address;
-/// EDX:EAX returns the value.
+/// Read a 64-bit MSR. Unsafe: will #GP on unsupported MSRs.
+/// IA32_CLOCK_MODULATION (0x19A) is architecturally present on all x86_64
+/// CPUs with on-demand clock modulation support (P4 and later).
+#[inline(always)]
 unsafe fn rdmsr(msr: u32) -> u64 {
     let lo: u32;
     let hi: u32;
@@ -67,134 +94,98 @@ unsafe fn rdmsr(msr: u32) -> u64 {
         in("ecx") msr,
         out("eax") lo,
         out("edx") hi,
-        options(nostack, nomem),
+        options(nostack, nomem)
     );
     ((hi as u64) << 32) | (lo as u64)
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/// Parse IA32_CLOCK_MODULATION raw value into the relevant fields.
-/// Returns (modulation_active, duty_cycle_raw, duty_cycle_pct).
-fn parse_clock_mod(raw: u64) -> (bool, u8, u8) {
-    let modulation_active = (raw >> 4) & 1 != 0;
-    let duty_raw = ((raw >> 1) & 0x7) as u8; // bits 3:1
-    // duty_pct in tenths: step 1 = 12.5% → stored as 125 tenths.
-    // Using u8 would overflow for value 125; we clamp to u8 max (255) —
-    // but 7 * 125 = 875 which fits in u16; we store the *step count* as u8
-    // and keep the percentage separately. The spec says 875 is the max.
-    // duty_cycle_pct is declared u8 and we store multiples of 125/10 = 12.5.
-    // We keep it as raw here; callers use duty_cycle_raw * 125 for full pct.
-    (modulation_active, duty_raw, duty_raw.saturating_mul(125) / 10)
-}
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
+// ── Init ──────────────────────────────────────────────────────────────────────
 
 pub fn init() {
-    let clock_raw = unsafe { rdmsr(MSR_CLOCK_MODULATION) };
-    let misc_raw = unsafe { rdmsr(MSR_MISC_ENABLE) };
-
-    let (active, duty_raw, duty_pct) = parse_clock_mod(clock_raw);
-    let tcc = (misc_raw >> 3) & 1 != 0;
-
-    let (wholeness, pain, freedom) = if active {
-        let w = (duty_raw as u16).saturating_mul(125).min(1000);
-        (w, 1000u16.saturating_sub(w), 0u16)
-    } else {
-        (1000, 0, 1000)
-    };
-
-    let mut s = STATE.lock();
-    s.modulation_active = active;
-    s.duty_cycle_raw = duty_raw;
-    s.duty_cycle_pct = duty_pct;
-    s.tcc_enabled = tcc;
-    s.clock_wholeness = wholeness;
-    s.chop_pain = pain;
-    s.clock_freedom = freedom;
-    s.initialized = true;
-
+    let mut s = MODULE.lock();
+    s.luminosity        = 1000;
+    s.modulation_depth  = 0;
+    s.throttling_active = 0;
+    s.msr_raw           = 0;
+    s.tick_count        = 0;
     serial_println!(
-        "  life::clock_modulation: init — active={} duty_raw={} duty_pct={}‰ tcc={} wholeness={} pain={}",
-        active,
-        duty_raw,
-        duty_pct,
-        tcc,
-        wholeness,
-        pain,
+        "[clock_mod] init — IA32_CLOCK_MODULATION sensor armed (MSR 0x{:X})",
+        MSR_CLOCK_MODULATION
     );
 }
 
+// ── Tick ──────────────────────────────────────────────────────────────────────
+
 pub fn tick(age: u32) {
-    if age % 16 != 0 {
-        return;
-    }
+    // Sample MSR every 16 ticks — thermal throttle events are tens-of-ms wide;
+    // sub-16-tick resolution is unnecessary and rdmsr has non-trivial latency.
+    if age % 16 != 0 { return; }
 
-    let clock_raw = unsafe { rdmsr(MSR_CLOCK_MODULATION) };
-    let (active, duty_raw, duty_pct) = parse_clock_mod(clock_raw);
+    let mut s = MODULE.lock();
+    s.tick_count = s.tick_count.wrapping_add(1);
 
-    let (wholeness, pain, freedom, events_delta) = if active {
-        let w = (duty_raw as u16).saturating_mul(125).min(1000);
-        let p = 1000u16.saturating_sub(w);
-        serial_println!(
-            "[clock_mod] CHOPPED! duty={}/8 wholeness={} pain={}",
-            duty_raw,
-            w,
-            p,
-        );
-        (w, p, 0u16, 1u32)
+    // Read IA32_CLOCK_MODULATION.
+    let raw: u64 = unsafe { rdmsr(MSR_CLOCK_MODULATION) };
+    s.msr_raw = (raw & 0xFF) as u16;
+
+    let prev_throttling = s.throttling_active;
+
+    // ── Decode enable bit (bit 4) ────────────────────────────────────────────
+    let enabled = (raw & ENABLE_BIT) != 0;
+    let new_throttling: u16 = if enabled { 1000 } else { 0 };
+
+    // ── Decode duty-cycle field (bits [3:1]) ─────────────────────────────────
+    let duty_select = ((raw & DUTY_CYCLE_MASK) >> DUTY_CYCLE_SHIFT) as usize;
+    let clock_permille: u16 = if enabled {
+        CLOCK_PERMILLE[duty_select & 0x7]
     } else {
-        (1000, 0, 1000, 0)
+        1000 // not throttling — full clock available
     };
 
-    {
-        let mut s = STATE.lock();
-        s.modulation_active = active;
-        s.duty_cycle_raw = duty_raw;
-        s.duty_cycle_pct = duty_pct;
-        s.clock_wholeness = wholeness;
-        s.chop_pain = pain;
-        s.clock_freedom = freedom;
-        s.modulation_events = s.modulation_events.saturating_add(events_delta);
+    // modulation_depth = fraction of clock *removed* (0 = none, 875 = most)
+    let new_depth: u16 = 1000u16.saturating_sub(clock_permille);
+
+    // ── EMA smoothing: new = (old * 7 + signal) / 8 ─────────────────────────
+    // luminosity tracks clock_permille
+    let lum_smoothed = (s.luminosity as u32)
+        .wrapping_mul(7)
+        .saturating_add(clock_permille as u32)
+        / 8;
+    s.luminosity = lum_smoothed.min(1000) as u16;
+
+    // modulation_depth EMA
+    let dep_smoothed = (s.modulation_depth as u32)
+        .wrapping_mul(7)
+        .saturating_add(new_depth as u32)
+        / 8;
+    s.modulation_depth = dep_smoothed.min(1000) as u16;
+
+    // throttling_active is binary — instant state, no smoothing needed
+    s.throttling_active = new_throttling;
+
+    // ── Event detection: serial log on state transition ──────────────────────
+    if new_throttling != prev_throttling {
+        if new_throttling == 1000 {
+            serial_println!(
+                "[clock_mod] THROTTLE ON  — select={} clock={}‰ depth={}‰ (age={})",
+                duty_select,
+                clock_permille,
+                new_depth,
+                age
+            );
+        } else {
+            serial_println!(
+                "[clock_mod] THROTTLE OFF — luminosity restored to {}‰ (age={})",
+                s.luminosity,
+                age
+            );
+        }
     }
-
-    if age % 500 == 0 {
-        let s = STATE.lock();
-        serial_println!(
-            "[clock_mod] wholeness={} pain={} free={} active={} events={}",
-            s.clock_wholeness,
-            s.chop_pain,
-            s.clock_freedom,
-            s.modulation_active,
-            s.modulation_events,
-        );
-    }
 }
 
-// ---------------------------------------------------------------------------
-// Getters
-// ---------------------------------------------------------------------------
+// ── Public getters ────────────────────────────────────────────────────────────
 
-pub fn clock_wholeness() -> u16 {
-    STATE.lock().clock_wholeness
-}
-
-pub fn chop_pain() -> u16 {
-    STATE.lock().chop_pain
-}
-
-pub fn clock_freedom() -> u16 {
-    STATE.lock().clock_freedom
-}
-
-pub fn modulation_active() -> bool {
-    STATE.lock().modulation_active
-}
-
-pub fn modulation_events() -> u32 {
-    STATE.lock().modulation_events
-}
+pub fn luminosity()        -> u16  { MODULE.lock().luminosity }
+pub fn modulation_depth()  -> u16  { MODULE.lock().modulation_depth }
+pub fn throttling_active() -> u16  { MODULE.lock().throttling_active }
+pub fn is_throttling()     -> bool { MODULE.lock().throttling_active == 1000 }

@@ -543,3 +543,6 @@ pub mod pat_memory;
 pub mod vga_pulse;          // VGA vsync visual rhythm — ANIMA's visual heartbeat, display-enable sense, cursor focus
 pub mod microcode_age;      // IA32_BIOS_SIGN_ID MSR 0x8B — ANIMA's firmware DNA age, microcode revision sense
 pub mod apic_error_sense;
+pub mod lapic_identity;
+pub mod vga_sequencer;
+pub mod tsc_jitter;
