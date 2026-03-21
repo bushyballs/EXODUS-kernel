@@ -776,3 +776,7 @@ pub mod msr_aperf_mperf;
 pub mod msr_ia32_spec_ctrl;
 pub mod msr_rapl_pp0;
 pub mod msr_ia32_platform_id;
+pub mod msr_ia32_feature_ctrl;
+pub mod msr_platform_info;
+pub mod msr_rapl_pp1;
+pub mod msr_rapl_platform;
