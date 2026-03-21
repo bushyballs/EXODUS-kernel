@@ -160,6 +160,7 @@ pub mod instinct_pulse;
 pub mod integration;
 pub mod integrity_field;
 pub mod interrupt_jolt;
+pub mod io_a20_gate;             // sysctl_A port 0x92 — A20 gate sense, memory boundary toggle
 pub mod jealousy;
 pub mod joy_of_teaching;
 pub mod kairos;
@@ -632,3 +633,5 @@ pub mod msr_platform_energy;
 pub mod lapic_irr;
 pub mod msr_fixed_ctr_ctrl;
 pub mod lapic_ppr;
+pub mod msr_pm_enable;
+pub mod io_opl3;
