@@ -669,3 +669,7 @@ pub mod msr_rapl_unit;
 pub mod sldt_sense;
 pub mod msr_pp0_power_limit;
 pub mod msr_xfd;
+pub mod msr_pkg_power_info;
+pub mod msr_xfd_err;
+pub mod msr_pp0_policy;
+pub mod cpuid_topology;
