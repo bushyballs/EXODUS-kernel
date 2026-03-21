@@ -784,3 +784,7 @@ pub mod msr_ia32_pkrs;
 pub mod cpuid_amx_info;
 pub mod msr_ia32_tsc_adjust;
 pub mod msr_smm_monitor_ctl;
+pub mod msr_ia32_apic_base;
+pub mod msr_ia32_mtrrcap;
+pub mod msr_ia32_fs_base;
+pub mod msr_ia32_gs_base;
