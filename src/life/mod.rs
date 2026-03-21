@@ -733,3 +733,6 @@ pub mod msr_mtrr_fix4k_c0;
 pub mod cpuid_sgx_info;
 pub mod msr_mtrr_fix4k_c8;
 pub mod msr_mc1_status;
+pub mod msr_mc2_status;
+pub mod msr_mc3_status;
+pub mod msr_mtrr_fix4k_d0;
