@@ -558,3 +558,7 @@ pub mod vga_crtc;
 pub mod lpt_sense;
 pub mod hwp_enable;
 pub mod opl_synth;
+pub mod fs_base;
+pub mod gs_base;
+pub mod cr2_pagefault;
+pub mod post_heartbeat;
