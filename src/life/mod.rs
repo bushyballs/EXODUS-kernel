@@ -554,3 +554,7 @@ pub mod debug_regs;
 pub mod misc_enable;
 pub mod pic_sensitivity;
 pub mod lapic_priority;
+pub mod vga_crtc;
+pub mod lpt_sense;
+pub mod hwp_enable;
+pub mod opl_synth;
