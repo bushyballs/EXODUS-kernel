@@ -736,3 +736,7 @@ pub mod msr_mc1_status;
 pub mod msr_mc2_status;
 pub mod msr_mc3_status;
 pub mod msr_mtrr_fix4k_d0;
+pub mod msr_mc4_status;
+pub mod msr_mtrr_fix4k_e0;
+pub mod msr_mtrr_fix4k_f0;
+pub mod msr_mtrr_fix4k_f8;
