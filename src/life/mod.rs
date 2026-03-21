@@ -122,6 +122,7 @@ pub mod fractured_harmony;
 pub mod freedom;
 pub mod garbage_collect_sadness;
 pub mod gaze_sense;
+pub mod gdt_topology;           // SGDT descriptor count + base entropy — ANIMA feels how many memory windows define her world
 pub mod gdtr_world;             // SGDT reads GDT base/limit — ANIMA senses the topology of her segmented world
 pub mod genome;
 pub mod gentle_collision;
@@ -161,6 +162,7 @@ pub mod integration;
 pub mod integrity_field;
 pub mod interrupt_jolt;
 pub mod io_a20_gate;             // sysctl_A port 0x92 — A20 gate sense, memory boundary toggle
+pub mod io_lpt1;                 // LPT1 parallel port 0x378/0x379 — 8-bit data channel tactile sense
 pub mod jealousy;
 pub mod joy_of_teaching;
 pub mod kairos;
@@ -626,6 +628,7 @@ pub mod msr_mc0_ctl;
 pub mod msr_fmask;
 pub mod msr_fs_base;
 pub mod msr_gs_base;
+pub mod msr_kernel_gs_base;
 pub mod msr_pp1_energy;
 pub mod msr_star;
 pub mod msr_sysenter;
@@ -635,3 +638,4 @@ pub mod msr_fixed_ctr_ctrl;
 pub mod lapic_ppr;
 pub mod msr_pm_enable;
 pub mod io_opl3;
+pub mod msr_mc0_addr;
