@@ -654,3 +654,7 @@ pub mod msr_u_cet;          // IA32_U_CET — User-mode shadow stack + IBT contr
 pub mod msr_s_cet;          // IA32_S_CET — Supervisor-mode CET: kernel shadow stack + IBT integrity sense
 pub mod msr_ler_to;
 pub mod msr_mcg_cap;
+pub mod msr_mcg_ctl;
+pub mod msr_pl3_ssp;
+pub mod lapic_isr_hi;
+pub mod cpuid_cache_tlb;
