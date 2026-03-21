@@ -614,3 +614,7 @@ pub mod xcr0_live;
 pub mod cpuid_tme;
 pub mod cpuid_pconfig;
 pub mod cpuid_arch_perf2;
+pub mod msr_debugctl;
+pub mod msr_arch_cap;
+pub mod msr_spec_ctrl;
+pub mod msr_mtrr_default;
