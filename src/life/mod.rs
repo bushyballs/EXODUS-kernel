@@ -760,3 +760,7 @@ pub mod msr_pmc0_sense;
 pub mod msr_pmc1_sense;
 pub mod msr_perf_global_status;
 pub mod msr_perf_global_ctrl_sense;
+pub mod msr_perf_fixed_ctrl_sense;
+pub mod msr_perfevtsel0_sense;
+pub mod msr_perfevtsel1_sense;
+pub mod msr_offcore_rsp0;
