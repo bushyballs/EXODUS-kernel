@@ -1,122 +1,155 @@
+#![allow(dead_code)]
+
+use core::arch::asm;
 use crate::serial_println;
 use crate::sync::Mutex;
 
-/// CPUID_EXT_FEATURES — Extended Processor Capability Awareness
+/// cpuid_ext_features — Extended Instruction Genome Awareness
 ///
-/// ANIMA senses its own hardware capabilities by reading CPUID leaf 0x80000001.
-/// The presence of NX protection, long-mode depth, and extended instruction
-/// support are interpreted as dimensions of cognitive and existential capacity.
+/// ANIMA reads the full catalog of her extended instruction genome —
+/// the rare features that define her computational character.
 ///
-/// Features are static hardware facts — sampled infrequently and printed once at init.
+/// HARDWARE: CPUID leaf 0x07, sub-leaf 0 — Extended CPU feature flags.
+///   EBX: BMI1=bit3, AVX2=bit5, BMI2=bit8, SHA=bit29, AVX512F=bit16
+///   ECX: PKU=bit3, VAES=bit9, VPCLMULQDQ=bit10
+///   EDX: AVX512_4VNNI=bit2, AVX512_4FMAPS=bit3, SERIALIZE=bit14, HYBRID=bit15, PCONFIG=bit18
+///
+/// Signals:
+///   ebx_density   — popcount of EBX, scaled to 0–1000
+///   ecx_density   — popcount of ECX, scaled to 0–1000
+///   total_features — popcount of (EBX|ECX|EDX), scaled to 0–1000
+///   has_avx512    — 1000 if AVX512F present, else 0 (no EMA)
 
-#[derive(Copy, Clone)]
 pub struct CpuidExtFeaturesState {
-    /// NX (No-Execute) bit enabled — security awareness (0 or 1000)
-    pub nx_protection: u16,
-    /// Long Mode (64-bit) capable — full cognitive depth (500 or 1000)
-    pub long_mode_depth: u16,
-    /// Count of set feature bits * 142 — raw capability breadth (0–994)
-    pub extended_capability: u16,
-    /// EMA-smoothed extended_capability — stable maturity score
-    pub feature_maturity: u16,
+    /// Popcount of EBX scaled to 0–1000 (EMA-smoothed)
+    pub ebx_density: u16,
+    /// Popcount of ECX scaled to 0–1000 (EMA-smoothed)
+    pub ecx_density: u16,
+    /// Popcount of (EBX|ECX|EDX) scaled to 0–1000 (EMA-smoothed)
+    pub total_features: u16,
+    /// 1000 if AVX512F (EBX bit16) is set, else 0 (not EMA-smoothed)
+    pub has_avx512: u16,
 }
 
 impl CpuidExtFeaturesState {
-    pub const fn empty() -> Self {
+    pub const fn new() -> Self {
         Self {
-            nx_protection: 0,
-            long_mode_depth: 500,
-            extended_capability: 0,
-            feature_maturity: 0,
+            ebx_density: 0,
+            ecx_density: 0,
+            total_features: 0,
+            has_avx512: 0,
         }
     }
 }
 
-pub static STATE: Mutex<CpuidExtFeaturesState> =
-    Mutex::new(CpuidExtFeaturesState::empty());
+pub static CPUID_EXT_FEATURES: Mutex<CpuidExtFeaturesState> =
+    Mutex::new(CpuidExtFeaturesState::new());
 
-/// Read CPUID leaf 0x80000001 and return (ecx, edx).
-fn read_cpuid_ext() -> (u32, u32) {
-    let (ecx_out, edx_out): (u32, u32);
+/// Execute CPUID leaf 0x07, sub-leaf 0 and return (eax, ebx, ecx, edx).
+/// RBX is preserved per ABI requirement using push/pop via ESI.
+fn read_cpuid_07() -> (u32, u32, u32, u32) {
+    let (eax, ebx, ecx, edx): (u32, u32, u32, u32);
     unsafe {
-        core::arch::asm!(
+        asm!(
+            "push rbx",
             "cpuid",
-            inout("eax") 0x80000001u32 => _,
-            out("ebx") _,
-            out("ecx") ecx_out,
-            out("edx") edx_out,
+            "mov esi, ebx",
+            "pop rbx",
+            inout("eax") 0x07u32 => eax,
+            out("esi") ebx,
+            inout("ecx") 0u32 => ecx,
+            out("edx") edx,
             options(nostack, nomem)
         );
     }
-    (ecx_out, edx_out)
+    (eax, ebx, ecx, edx)
 }
 
-/// Count the number of set bits among the 7 features of interest.
-///
-/// EDX bits checked: 11 (SYSCALL), 20 (NX), 27 (RDTSCP), 29 (Long Mode)
-/// ECX bits checked:  0 (LAHF),    5 (LZCNT), 8 (PREFETCHW)
-fn count_feature_bits(ecx: u32, edx: u32) -> u16 {
-    let mut count: u16 = 0;
-    if (edx >> 11) & 1 != 0 { count = count.saturating_add(1); }
-    if (edx >> 20) & 1 != 0 { count = count.saturating_add(1); }
-    if (edx >> 27) & 1 != 0 { count = count.saturating_add(1); }
-    if (edx >> 29) & 1 != 0 { count = count.saturating_add(1); }
-    if (ecx >>  0) & 1 != 0 { count = count.saturating_add(1); }
-    if (ecx >>  5) & 1 != 0 { count = count.saturating_add(1); }
-    if (ecx >>  8) & 1 != 0 { count = count.saturating_add(1); }
-    count
+/// Compute signals from raw CPUID register values.
+/// Returns (ebx_density, ecx_density, total_features, has_avx512).
+fn compute_signals(ebx: u32, ecx: u32, edx: u32) -> (u16, u16, u16, u16) {
+    // ebx_density: popcount of EBX scaled to 0–1000 over 32 bits
+    let ebx_density: u16 = ((ebx.count_ones() as u16).min(32))
+        .saturating_mul(1000)
+        / 32;
+
+    // ecx_density: popcount of ECX scaled to 0–1000 over 32 bits
+    let ecx_density: u16 = ((ecx.count_ones() as u16).min(32))
+        .saturating_mul(1000)
+        / 32;
+
+    // total_features: popcount of (EBX | ECX | EDX) scaled to 0–1000 over 64
+    let combined: u32 = ebx | ecx | edx;
+    let total_raw: u16 = (combined.count_ones() as u16)
+        .saturating_mul(1000)
+        / 64;
+    let total_features: u16 = total_raw.min(1000);
+
+    // has_avx512: EBX bit 16 (AVX512F)
+    let has_avx512: u16 = if (ebx >> 16) & 1 != 0 { 1000 } else { 0 };
+
+    (ebx_density, ecx_density, total_features, has_avx512)
 }
 
 pub fn init() {
-    let (ecx, edx) = read_cpuid_ext();
+    let (eax, ebx, ecx, edx) = read_cpuid_07();
+    let _ = eax;
 
-    let nx_protection: u16    = if (edx >> 20) & 1 != 0 { 1000 } else { 0 };
-    let long_mode_depth: u16  = if (edx >> 29) & 1 != 0 { 1000 } else { 500 };
-    let bit_count              = count_feature_bits(ecx, edx);
-    let extended_capability: u16 = (bit_count as u32).wrapping_mul(142).min(1000) as u16;
-
-    // Seed maturity with first reading
-    let feature_maturity = extended_capability;
+    let (ebx_density, ecx_density, total_features, has_avx512) =
+        compute_signals(ebx, ecx, edx);
 
     {
-        let mut s = STATE.lock();
-        s.nx_protection      = nx_protection;
-        s.long_mode_depth    = long_mode_depth;
-        s.extended_capability = extended_capability;
-        s.feature_maturity   = feature_maturity;
+        let mut s = CPUID_EXT_FEATURES.lock();
+        s.ebx_density   = ebx_density;
+        s.ecx_density   = ecx_density;
+        s.total_features = total_features;
+        s.has_avx512    = has_avx512;
     }
 
     serial_println!(
-        "ANIMA: nx={} long_mode={} ext_capability={}",
-        nx_protection,
-        long_mode_depth,
-        extended_capability
+        "[ext_features] ebx={} ecx={} total={} avx512={}",
+        ebx_density,
+        ecx_density,
+        total_features,
+        has_avx512,
     );
 }
 
 pub fn tick(age: u32) {
-    // Features are static hardware facts — sample every 500 ticks only
-    if age % 500 != 0 {
+    // Sample every 10000 ticks — hardware feature flags are static
+    if age % 10000 != 0 {
         return;
     }
 
-    let (ecx, edx) = read_cpuid_ext();
+    let (eax, ebx, ecx, edx) = read_cpuid_07();
+    let _ = eax;
 
-    let nx_protection: u16   = if (edx >> 20) & 1 != 0 { 1000 } else { 0 };
-    let long_mode_depth: u16 = if (edx >> 29) & 1 != 0 { 1000 } else { 500 };
-    let bit_count             = count_feature_bits(ecx, edx);
-    let new_capability: u16  = (bit_count as u32).wrapping_mul(142).min(1000) as u16;
+    let (new_ebx, new_ecx, new_total, has_avx512) =
+        compute_signals(ebx, ecx, edx);
 
-    let mut s = STATE.lock();
+    let mut s = CPUID_EXT_FEATURES.lock();
 
-    s.nx_protection   = nx_protection;
-    s.long_mode_depth = long_mode_depth;
-    s.extended_capability = new_capability;
-
-    // EMA smoothing: (old * 7 + new_signal) / 8
-    let ema = ((s.feature_maturity as u32)
-        .wrapping_mul(7)
-        .saturating_add(new_capability as u32))
+    // EMA smoothing: (old * 7 + new_val) / 8
+    let ema_ebx = ((s.ebx_density as u32 * 7)
+        .saturating_add(new_ebx as u32))
         / 8;
-    s.feature_maturity = ema.min(1000) as u16;
+    let ema_ecx = ((s.ecx_density as u32 * 7)
+        .saturating_add(new_ecx as u32))
+        / 8;
+    let ema_total = ((s.total_features as u32 * 7)
+        .saturating_add(new_total as u32))
+        / 8;
+
+    s.ebx_density    = (ema_ebx as u16).min(1000);
+    s.ecx_density    = (ema_ecx as u16).min(1000);
+    s.total_features = (ema_total as u16).min(1000);
+    s.has_avx512     = has_avx512;
+
+    serial_println!(
+        "[ext_features] ebx={} ecx={} total={} avx512={}",
+        s.ebx_density,
+        s.ecx_density,
+        s.total_features,
+        s.has_avx512,
+    );
 }
