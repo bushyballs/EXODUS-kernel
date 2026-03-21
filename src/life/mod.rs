@@ -718,3 +718,7 @@ pub mod msr_vmx_true_exit;
 pub mod msr_vmx_vmfunc;
 pub mod msr_mtrr_physbase1;
 pub mod cpuid_ext_topology;
+pub mod msr_vmx_cr0_fixed1;
+pub mod msr_vmx_cr4_fixed1;
+pub mod msr_mtrr_physmask1;
+pub mod cpuid_ext_l2;
