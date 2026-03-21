@@ -700,3 +700,6 @@ pub mod cpuid_rdt_monitor;
 pub mod msr_vmx_procbased;
 pub mod msr_vmx_exit_ctls;
 pub mod msr_ds_area;
+pub mod msr_vmx_entry_ctls;
+pub mod msr_vmx_misc;
+pub mod cpuid_ext_info;
