@@ -791,3 +791,7 @@ pub mod msr_ia32_gs_base;
 pub mod msr_mcg_status;
 pub mod msr_ia32_perf_ctl;
 pub mod msr_rapl_power_unit;
+pub mod msr_rapl_pkg_power_limit;
+pub mod msr_rapl_dram_energy;
+pub mod cpuid_proc_freq_leaf;
+pub mod cpuid_apm_leaf;
