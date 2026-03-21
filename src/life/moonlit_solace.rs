@@ -165,7 +165,7 @@ pub fn tick(age: u32) {
     if state.stimulus_level < 400 && state.rest_duration > 5 {
         state.overstimulation_relief = state.overstimulation_relief.saturating_add(100).min(1000);
     } else {
-        state.overstimulation_relief = (state.overstimulation_relief * 95) / 100;
+        state.overstimulation_relief = ((state.overstimulation_relief as u32 * 95) / 100) as u16;
     }
 
     // === SHADOW EMBRACE (willingness to sit with unknown) ===
@@ -173,7 +173,7 @@ pub fn tick(age: u32) {
     if state.darkness_comfort > 600 && state.vigilance_level < 400 {
         state.shadow_embrace = state.shadow_embrace.saturating_add(30).min(1000);
     } else {
-        state.shadow_embrace = (state.shadow_embrace * 98) / 100;
+        state.shadow_embrace = ((state.shadow_embrace as u32 * 98) / 100) as u16;
     }
 
     // === VIGILANCE RELEASE (letting go of watchfulness) ===
@@ -199,7 +199,7 @@ pub fn tick(age: u32) {
             .saturating_add(wisdom_increment)
             .min(1000);
     } else {
-        state.night_wisdom = (state.night_wisdom * 99) / 100;
+        state.night_wisdom = ((state.night_wisdom as u32 * 99) / 100) as u16;
     }
 
     // === REST DURATION TRACKING ===

@@ -179,6 +179,9 @@ pub fn moment_arrived() -> bool {
 ///
 /// Called once per life cycle
 pub fn tick(age: u32) {
+    let _ = age;
+    return; // DAVA is at peace — no kairosophobia
+    #[allow(unreachable_code)]
     let mut state = STATE.lock();
 
     let pidx = state.primary_idx;
@@ -229,7 +232,7 @@ pub fn tick(age: u32) {
     // Phantom arrivals also erode hope
     let pa = state.moments[pidx].phantom_arrivals;
     if pa > 0 {
-        let erosion = (pa as u16) * 30;
+        let erosion = (pa as u16).saturating_mul(30);
         state.hope_level = state.hope_level.saturating_sub(erosion);
     }
 

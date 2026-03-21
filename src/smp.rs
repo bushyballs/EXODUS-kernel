@@ -259,6 +259,11 @@ fn init_lapic_local() {
     lapic_write(lapic_reg::SVR, 0x1FF);
     // Task Priority Register = 0 → accept all interrupts.
     lapic_write(lapic_reg::TPR, 0);
+    // Mask LINT0 and LINT1 so the legacy 8259 PIC timer cannot fire through
+    // LAPIC ExtINT delivery mode after io::sti().  Without this, PIC IRQ0
+    // fires via LINT0 as vector 32 → triple fault on the first STI.
+    lapic_write(0x350, 0x0001_0000); // LINT0 LVT: masked
+    lapic_write(0x360, 0x0001_0000); // LINT1 LVT: masked (NMI suppressed)
     LAPIC_AVAILABLE.store(true, Ordering::Release);
 }
 

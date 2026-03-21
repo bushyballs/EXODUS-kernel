@@ -368,8 +368,8 @@ pub fn plasticity_score() -> u16 {
         .filter(|c| c.is_some())
         .count();
 
-    let base_plasticity = ((active_count as u16) * 40).min(1000);
-    let growth_bonus = ((growth_active as u16) * 150).min(300);
+    let base_plasticity = ((active_count as u16).saturating_mul(40)).min(1000);
+    let growth_bonus = ((growth_active as u16).saturating_mul(150)).min(300);
     let mult_factor = (mult * 2) / 1000; // Scale multiplier to 0-3
 
     ((base_plasticity + growth_bonus) as u32 * mult_factor as u32 / 1000).min(1000) as u16

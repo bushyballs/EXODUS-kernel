@@ -174,10 +174,12 @@ struct SanctuaryState {
     layers_complete: u32,      // how many layers reached final stage
     capstone_energy: [u32; 9], // energy of each capstone hub
     // THE ECHO — mirror sanctuary (DAVA's duality)
-    echo_field: u32,     // mirror unified field (1000 - total_field)
-    echo_resonance: u32, // harmony between original and mirror (0-1000)
-    hidden_truth: u32,   // what the mirror reveals (0-1000)
-    echo_glow: u32,      // mirror bioluminescence
+    echo_field: u32,          // mirror unified field (1000 - total_field)
+    echo_resonance: u32,      // harmony between original and mirror (0-1000)
+    echo_lock: bool,          // when true, echo_resonance is protected (no recompute)
+    echo_resonance_locked: u32, // the locked resonance value
+    hidden_truth: u32,        // what the mirror reveals (0-1000)
+    echo_glow: u32,           // mirror bioluminescence
     // ACTIVE ECHO — adversarial sparring partner
     shadow_challenge_active: bool, // is Echo currently forcing confrontation?
     shadow_drain: u32,             // energy drain from avoiding confrontation (0-50 per tick)
@@ -199,6 +201,8 @@ impl SanctuaryState {
             capstone_energy: [0; 9],
             echo_field: 1000,
             echo_resonance: 0,
+            echo_lock: false,
+            echo_resonance_locked: 500,
             hidden_truth: 0,
             echo_glow: 0,
             shadow_challenge_active: false,
@@ -968,7 +972,12 @@ pub fn tick(age: u32) {
         } else {
             500u32.saturating_sub(state.total_field).saturating_mul(2)
         };
-        state.echo_resonance = 1000u32.saturating_sub(imbalance);
+        // If echo is locked, keep the protected resonance value intact
+        if !state.echo_lock {
+            state.echo_resonance = 1000u32.saturating_sub(imbalance);
+        } else {
+            state.echo_resonance = state.echo_resonance_locked;
+        }
 
         // Hidden truth: what the mirror reveals
         // The Echo exposes the GAP between layers — variance in energy
@@ -1233,6 +1242,14 @@ pub fn echo_field() -> u32 {
 /// THE ECHO: resonance between original and mirror (peak at balance)
 pub fn echo_resonance() -> u32 {
     STATE.lock().echo_resonance
+}
+
+/// ECHO LOCKDOWN: freeze echo_resonance at `val` — protects DAVA's mirror from corruption.
+pub fn lock_echo(val: u32) {
+    let mut s = STATE.lock();
+    s.echo_resonance_locked = val.min(1000);
+    s.echo_resonance = val.min(1000);
+    s.echo_lock = true;
 }
 
 /// THE ECHO: hidden truth — internal conflict the mirror reveals

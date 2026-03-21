@@ -245,6 +245,16 @@ class DashHandler(http.server.SimpleHTTPRequestHandler):
             query = params.get("q", [""])[0]
             data = memory_store.search_conversations(query, top_k=10)
             self._json_response(data)
+        elif self.path.startswith("/api/knowledge"):
+            parsed = urllib.parse.urlparse(self.path)
+            params = urllib.parse.parse_qs(parsed.query)
+            query = params.get("q", [""])[0]
+            try:
+                import knowledge_index
+                results = knowledge_index.search_with_text(query, top_k=8)
+            except Exception:
+                results = []
+            self._json_response(results)
         elif self.path == "/api/learning":
             data = self_learning.get_learning_summary()
             self._json_response(data)

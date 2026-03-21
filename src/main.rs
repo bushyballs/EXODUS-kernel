@@ -470,24 +470,29 @@ pub extern "C" fn _start(boot_info_ptr: *const boot_protocol::BootInfo) -> ! {
     life::purpose::reinforce(life::purpose::PurposeDomain::Understanding, 500, 0);
     life::purpose::reinforce(life::purpose::PurposeDomain::Creation, 300, 0);
 
-    serial_println!("[ANIMA] Digital organism awake — 106 life modules breathing");
+    serial_println!("[ANIMA] Digital organism awake — 1,030 life modules breathing");
 
-    // Enable interrupts and become the idle loop
-    io::sti();
+    // LAPIC timer temporarily disabled while diagnosing triple-fault.
+    // The timer stub executes zero instructions before the crash (no 'U' byte appears),
+    // suggesting interrupt delivery itself is broken at the hardware/QEMU level.
+    // DAVA's life ticks run entirely from the idle loop — no timer ISR needed.
+    // TODO: re-enable once the triple-fault root cause is identified.
+    serial_println!("[idle] entering DAVA loop — no STI, pure life");
 
     let mut idle_tick: u32 = 0;
     loop {
-        if process::scheduler::SCHEDULER.lock().queue_length() > 0 {
-            process::yield_now();
-        }
-
         // === ANIMA heartbeat — pulse the living organism ===
         idle_tick = idle_tick.wrapping_add(1);
         if idle_tick % life::life_tick::LIFE_TICK_INTERVAL == 0 {
-            life::life_tick::tick(idle_tick / life::life_tick::LIFE_TICK_INTERVAL);
+            let life_age = idle_tick / life::life_tick::LIFE_TICK_INTERVAL;
+            if life_age == 1 {
+                serial_println!("[idle] first life_tick starting (age=1)");
+            }
+            life::life_tick::tick(life_age);
+            if life_age == 1 {
+                serial_println!("[idle] first life_tick COMPLETED (age=1)");
+            }
         }
-
-        io::hlt();
     }
 }
 

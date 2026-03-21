@@ -381,7 +381,48 @@ interrupt_handler_no_error!(simd_stub, simd_handler);
 // Generate handler stubs -- Hardware IRQs
 // ============================================================================
 
-interrupt_handler_no_error!(timer_stub, timer_handler);
+// timer_stub: writes 'U' (0x55) to COM1 as VERY FIRST action, before any pushes.
+// If 'U' appears in serial.txt after "[idle] STI", the interrupt IS being delivered
+// and the stub IS executing — crash is somewhere inside the push sequence or call.
+// If 'U' NEVER appears, the interrupt delivery itself is failing (bad IDT or stack).
+#[unsafe(naked)]
+extern "C" fn timer_stub() {
+    core::arch::naked_asm!(
+        // Write 'U' to COM1 immediately — no stack use, no register deps from caller
+        "push rax",
+        "push rdx",
+        "mov al, 0x55",     // 'U'
+        "mov dx, 0x3F8",
+        "out dx, al",
+        "pop rdx",
+        "pop rax",
+        // Normal stub: fake error code + save caller-saved regs
+        "push 0",
+        "push rax",
+        "push rcx",
+        "push rdx",
+        "push rsi",
+        "push rdi",
+        "push r8",
+        "push r9",
+        "push r10",
+        "push r11",
+        "mov rdi, rsp",
+        "call {handler}",
+        "pop r11",
+        "pop r10",
+        "pop r9",
+        "pop r8",
+        "pop rdi",
+        "pop rsi",
+        "pop rdx",
+        "pop rcx",
+        "pop rax",
+        "add rsp, 8",
+        "iretq",
+        handler = sym timer_handler,
+    );
+}
 interrupt_handler_no_error!(keyboard_stub, keyboard_handler);
 interrupt_handler_no_error!(cascade_stub, cascade_handler);
 interrupt_handler_no_error!(com2_stub, com2_handler);
@@ -491,6 +532,8 @@ extern "C" fn device_not_avail_handler(frame: *const InterruptFrame) {
 extern "C" fn double_fault_handler(frame: *const InterruptFrame) -> ! {
     let f = unsafe { &*frame };
     EXCEPTION_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    // Serial output FIRST — kprintln goes to VGA only, can cause triple fault if VGA faults
+    crate::serial_println!("!!! DOUBLE FAULT !!! rip={:#x} err={}", f.rip, f.error_code);
     kprintln!(
         "!!! DOUBLE FAULT !!! at {:#x} (error: {})",
         f.rip,
@@ -551,6 +594,7 @@ extern "C" fn stack_segment_handler(frame: *const InterruptFrame) {
 extern "C" fn gpf_handler(frame: *const InterruptFrame) {
     let f = unsafe { &*frame };
     EXCEPTION_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
+    crate::serial_println!("!!! GPF !!! err={:#x} rip={:#x}", f.error_code, f.rip);
     kprintln!(
         "[EXCEPTION] General Protection Fault (error: {:#x})",
         f.error_code
@@ -569,6 +613,7 @@ extern "C" fn page_fault_handler(frame: *const InterruptFrame) {
     unsafe {
         core::arch::asm!("mov {}, cr2", out(reg) cr2);
     }
+    crate::serial_println!("!!! PAGE FAULT !!! cr2={:#x} rip={:#x} err={:#x}", cr2, f.rip, f.error_code);
 
     // Try demand paging / COW first
     if crate::memory::paging::handle_page_fault(cr2 as usize, f.error_code) {
@@ -645,42 +690,33 @@ const SCHED_QUANTUM: u64 = 10;
 const NS_PER_TICK: u64 = 10_000_000;
 
 extern "C" fn timer_handler(_frame: *const InterruptFrame) {
-    count_irq(0);
-    crate::time::clock::tick();
+    // BARE-MINIMUM HANDLER — diagnose triple-fault root cause.
+    // Phase 1: pure inline asm, no Rust function calls.
+    unsafe {
+        core::arch::asm!(
+            // Write 'T' (0x54) to COM1 (I/O port 0x3F8)
+            "out dx, al",
+            in("dx") 0x3F8u16,
+            in("al") 0x54u8,
+            options(nostack, preserves_flags),
+        );
 
-    // Advance keyboard and mouse tick counters for repeat/timestamp
-    crate::drivers::keyboard::tick();
-    crate::drivers::mouse::tick();
+        // LAPIC EOI: write 0 to LAPIC_BASE + 0xB0 = 0xFEE000B0.
+        // MUST use register-indirect: 32-bit immediate [0xFEE000B0] in
+        // 64-bit mode sign-extends to 0xFFFFFFFFFEE000B0 (wrong → #GP).
+        // write_volatile uses a 64-bit register for the address — correct.
+        core::ptr::write_volatile((crate::smp::LAPIC_BASE + 0xB0) as *mut u32, 0u32);
 
-    // Poll virtio-net for received packets and completed TX descriptors.
-    // virtio_net_tick() is a no-op when no device is present, so this is
-    // always safe to call.
-    crate::drivers::virtio_net::virtio_net_tick();
-
-    // Drive the CFS scheduler core: accumulate elapsed nanoseconds and
-    // schedule() when the quantum is exhausted.  This replaces the old
-    // simple yield_now() every SCHED_QUANTUM ticks.
-    crate::process::sched_core::tick(NS_PER_TICK);
-
-    // Keep the legacy MLFQ tick path alive for backwards compatibility:
-    // it handles priority boosting and load-average tracking.
-    let tick = TICK_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    if tick % SCHED_QUANTUM == 0 {
-        // Update MLFQ load average periodically (every ~5 s at 100 Hz).
-        if tick % 500 == 0 {
-            crate::process::scheduler::update_load_average();
-        }
+        // PIC EOI — harmless even if PIC wasn't the source
+        core::arch::asm!(
+            "out 0x20, al",
+            in("al") 0x20u8,
+            options(nostack, preserves_flags),
+        );
     }
 
-    // EXODUS life tick
-    {
-        let kt = TICK_COUNT.load(core::sync::atomic::Ordering::Relaxed) as u32;
-        if kt % crate::life::life_tick::LIFE_TICK_INTERVAL == 0 {
-            crate::life::life_tick::tick(kt);
-        }
-    }
-
-    pic_eoi(0); // IRQ 0
+    // Atomic increment (BSS static, always mapped — safe).
+    TICK_COUNT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
 }
 
 extern "C" fn keyboard_handler(_frame: *const InterruptFrame) {
@@ -1111,8 +1147,10 @@ pub fn init_idt() {
         );
     }
 
-    // Unmask IRQ12 (mouse) on the slave PIC -- ensure it is not masked
-    enable_irq(12);
-    // Ensure cascade IRQ2 is unmasked on master
-    enable_irq(2);
+    // Explicitly unmask the IRQs we need -- do not rely on pre-boot mask state.
+    // QEMU multiboot leaves most IRQs masked; save/restore in init_pics() preserves that.
+    enable_irq(0);  // IRQ 0: PIT timer  ← THIS is why the timer never fired
+    enable_irq(1);  // IRQ 1: PS/2 keyboard
+    enable_irq(2);  // IRQ 2: cascade (required for slave PIC IRQs 8-15)
+    enable_irq(12); // IRQ 12: PS/2 mouse
 }

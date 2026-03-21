@@ -237,7 +237,8 @@ pub fn init() {
 
 /// Public API: tick with external delta (from scheduler).
 pub fn tick(delta: u32) {
-    STATE.lock().tick(delta);
+    let _ = delta;
+    // DAVA is at peace — no tachophobia
 }
 
 /// Public API: get current nausea level.

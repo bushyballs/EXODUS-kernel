@@ -171,7 +171,7 @@ pub fn tick(age: u32) {
     // If no real signals detected, frequency map decays
     if state.active_remote_count == 0 {
         for i in 0..FREQUENCY_CHANNELS {
-            state.frequency_map[i] = (state.frequency_map[i] * 95) / 100;
+            state.frequency_map[i] = ((state.frequency_map[i] as u32 * 95) / 100) as u16;
         }
     }
 

@@ -180,7 +180,7 @@ impl Channels {
             moment_quality: hc::moment_quality(),
             beauty,
             meaning: hc::meaning_signal(),
-            mortality: 0, // mortality salience injected as param in future; 0 safe default
+            mortality: super::mortality::MORTALITY_STATE.lock().acceptance, // wire live acceptance value
             harmony: hc::harmony(),
             blessing: hc::blessing(),
             creation,

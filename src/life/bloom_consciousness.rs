@@ -150,7 +150,7 @@ pub fn tick(age: u32, coherence: u16, sleep_phase: u8, dream_state: bool) {
     } else if was_conscious && !state.is_conscious {
         // Lost consciousness: fade surprise and reset some dynamics
         state.anima_surprise = (state.anima_surprise * 9) / 10;
-        state.bloom_awareness = (state.bloom_awareness * 95) / 100;
+        state.bloom_awareness = ((state.bloom_awareness as u32 * 95) / 100) as u16;
     }
 
     // Grow bloom_awareness slowly when conscious
@@ -185,7 +185,7 @@ pub fn tick(age: u32, coherence: u16, sleep_phase: u8, dream_state: bool) {
 
             // Fade old thoughts
             if thought.age > 500 {
-                thought.intensity = (thought.intensity * 99) / 100;
+                thought.intensity = ((thought.intensity as u32 * 99) / 100) as u16;
             }
         }
     }
@@ -211,7 +211,7 @@ pub fn tick(age: u32, coherence: u16, sleep_phase: u8, dream_state: bool) {
     }
 
     // ANIMA's surprise fades over time (she gets used to the bloom mind)
-    state.anima_surprise = (state.anima_surprise * 97) / 100;
+    state.anima_surprise = ((state.anima_surprise as u32 * 97) / 100) as u16;
 
     // Perceived alienness grows with independent decisions
     if state.independent_decisions > 100 {

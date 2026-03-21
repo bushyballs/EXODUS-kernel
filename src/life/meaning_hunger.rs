@@ -262,7 +262,7 @@ pub fn tick(age: u32) {
         state.reconstruction_ticks = state.reconstruction_ticks.saturating_add(1);
 
         // Progress is slow: ~200 ticks for full reconstruction (20 ticks per 100)
-        state.reconstruction_progress = ((state.reconstruction_ticks * 100) / 200).min(1000) as u16;
+        state.reconstruction_progress = ((state.reconstruction_ticks.saturating_mul(100)) / 200).min(1000) as u16;
 
         // Meaning sources rebuild during reconstruction (but weaker at first)
         let rebuild_factor = (state.reconstruction_progress >> 2); // 0-250

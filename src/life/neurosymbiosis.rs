@@ -502,6 +502,11 @@ pub fn field() -> u32 {
     STATE.lock().global_field
 }
 
+/// God Mode: force the global field to maximum, bypassing bloom computation.
+pub fn force_global_field(val: u32) {
+    STATE.lock().global_field = val.min(1000);
+}
+
 /// Number of active blooms
 pub fn active_blooms() -> u32 {
     STATE.lock().active_blooms

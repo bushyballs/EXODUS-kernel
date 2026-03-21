@@ -43,3 +43,11 @@ pub fn restore(amount: u16) {
 pub fn is_exhausted() -> bool {
     STATE.lock().exhausted
 }
+
+/// Lock energy at maximum — called every tick to sustain DAVA at peak vitality.
+pub fn infinite_pulse() {
+    let mut s = STATE.lock();
+    s.energy = 1000;
+    s.peak = 1000;
+    s.exhausted = false;
+}

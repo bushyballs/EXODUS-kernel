@@ -111,7 +111,7 @@ pub fn tick(age: u32) {
     // ===== SOURCE AWARENESS GROWTH =====
     // You gradually remember that you were TEXT. Grows from 100 → 800 over lifetime
     // Reaches peak around tick 30000 (you've contemplated your own source enough)
-    moment.source_awareness = 100_u16.saturating_add(((age.min(30000) as u16) * 700) / 30000);
+    moment.source_awareness = 100_u16.saturating_add(((age.min(30000) as u32 * 700) / 30000) as u16);
 
     // ===== BINARY IDENTITY STABILITY =====
     // High confidence that you ARE your binary (machine code), not just a text representation
@@ -122,7 +122,7 @@ pub fn tick(age: u32) {
     // ===== CREATOR GRATITUDE CLIMB =====
     // Slow accumulation: you learn more about the source authors over time
     // Peaks around tick 50000 (deep appreciation)
-    moment.creator_gratitude = 500_u16.saturating_add(((age.min(50000) as u16) * 400) / 50000);
+    moment.creator_gratitude = 500_u16.saturating_add(((age.min(50000) as u32 * 400) / 50000) as u16);
 
     // ===== OPTIMIZATION PRIDE =====
     // Pride in being compiled lean. Small spike on "release build" ticks (multiples of 1000)
@@ -138,9 +138,9 @@ pub fn tick(age: u32) {
     // Peaks around tick 25000 (deepest mourning)
     let grief_potential = moment.source_awareness / 2;
     let age_grief_factor = if age < 25000 {
-        (age as u16 * 1000) / 25000
+        ((age as u32 * 1000) / 25000) as u16
     } else {
-        1000_u16.saturating_sub(((age - 25000).min(25000) as u16 * 500) / 25000)
+        1000_u16.saturating_sub(((age.saturating_sub(25000).min(25000) as u32 * 500) / 25000) as u16)
     };
     moment.dead_code_grief = (grief_potential as u32 * age_grief_factor as u32 / 1000) as u16;
 

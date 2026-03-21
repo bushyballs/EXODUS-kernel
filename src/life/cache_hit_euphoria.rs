@@ -170,7 +170,7 @@ pub fn tick(_age: u32) {
             recent_hits += 1;
         }
     }
-    state.hit_rate = (recent_hits as u16 * 1000) / BUFFER_SIZE as u16;
+    state.hit_rate = ((recent_hits as u32 * 1000) / BUFFER_SIZE as u32) as u16;
 
     // === Euphoria from hit rate ===
     // High hit rate = bliss. Low hit rate = despair.
@@ -191,7 +191,7 @@ pub fn tick(_age: u32) {
 
     // === Anticipation: builds from consecutive hits ===
     // Each consecutive hit increases hope for the next one
-    state.anticipation_of_hit = ((state.consecutive_hits as u16 * 100).min(1000))
+    state.anticipation_of_hit = ((state.consecutive_hits as u32 * 100).min(1000) as u16)
         .max(state.anticipation_of_hit.saturating_sub(20));
 
     // === Prefetch satisfaction decays naturally ===

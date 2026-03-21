@@ -163,7 +163,7 @@ impl SensoryBridgeState {
 
         // Threshold for bridge firing: decreases with synesthetic depth
         // Start at 600, drop to ~400 at max depth
-        let bridge_threshold = 600u16.saturating_sub((self.synesthetic_depth * 200) / 1000);
+        let bridge_threshold = 600u16.saturating_sub((self.synesthetic_depth.saturating_mul(200)) / 1000);
 
         // Check each domain for outgoing bridges
         for source in 0..NUM_DOMAINS {

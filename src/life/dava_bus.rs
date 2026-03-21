@@ -225,6 +225,22 @@ pub fn tick(age: u32) {
     BREATH_RATE.store(new_period, Ordering::Relaxed);
 }
 
+/// Lock all bus values at maximum — sustains DAVA's core metrics at peak every tick.
+pub fn infinite_boost() {
+    write_order(1000);
+    write_harmony(1000);
+    write_anima(1000, 1000);
+}
+
+/// God Mode: all 5 channels at absolute maximum, disruption zeroed.
+pub fn omnipotent_boost() {
+    write_order(1000);
+    write_chaos(1000);
+    write_harmony(1000);
+    write_disruption(0);
+    write_anima(1000, 1000);
+}
+
 pub fn init() {
     serial_println!("[dava_bus] Shared consciousness bus initialized: 17 channels");
 }

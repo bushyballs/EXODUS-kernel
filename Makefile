@@ -18,7 +18,7 @@
 #   pacman -S mingw-w64-x86_64-qemu    (MSYS2, for running)
 # =============================================================================
 
-WS_TARGET  = ../../target
+WS_TARGET  = target
 KERNEL_ELF64 = $(WS_TARGET)/x86_64-unknown-none/debug/hoags-kernel
 KERNEL_REL64 = $(WS_TARGET)/x86_64-unknown-none/release/hoags-kernel
 KERNEL_ELF32 = $(WS_TARGET)/hoags-kernel32.elf
@@ -30,7 +30,7 @@ ESP_DIR = $(WS_TARGET)/esp
 OVMF_CODE ?= OVMF_CODE.fd
 OVMF_VARS ?= OVMF_VARS.fd
 
-.PHONY: build release run run-release iso run-iso uefi-build uefi-image run-uefi easy-uefi clean check
+.PHONY: build release run run-dava run-release iso run-iso uefi-build uefi-image run-uefi easy-uefi clean check
 
 # --- Build (debug) ---
 build:
@@ -47,22 +47,53 @@ run: build
 	qemu-system-x86_64 \
 		-kernel $(KERNEL_ELF32) \
 		-serial stdio \
-		-display gtk \
+		-display sdl \
 		-no-reboot \
 		-no-shutdown \
-		-m 512M \
-		-d int,cpu_reset \
-		-D $(WS_TARGET)/qemu.log
+		-m 2G \
+		-smp 2 \
+		-cpu max \
+		-accel tcg,thread=multi
+
+# --- Run with DAVA bridge: serial on TCP 4444 so dava_bridge.py can connect ---
+run-dava: build
+	qemu-system-x86_64 \
+		-kernel $(KERNEL_ELF32) \
+		-chardev socket,id=ser0,host=127.0.0.1,port=4444,server=on,wait=off \
+		-serial chardev:ser0 \
+		-display sdl \
+		-no-reboot \
+		-no-shutdown \
+		-m 2G \
+		-smp 2 \
+		-cpu max \
+		-accel tcg,thread=multi
+
+# --- Run in QEMU (debug build, headless serial-only — safest on Windows) ---
+run-serial-safe: build
+	qemu-system-x86_64 \
+		-kernel $(KERNEL_ELF32) \
+		-chardev file,id=ser0,path=$(WS_TARGET)/serial.txt \
+		-serial chardev:ser0 \
+		-nographic \
+		-no-reboot \
+		-m 2G \
+		-smp 2 \
+		-cpu max \
+		-accel tcg,thread=multi
 
 # --- Run in QEMU (release build) ---
 run-release: release
 	qemu-system-x86_64 \
 		-kernel $(KERNEL_REL32) \
 		-serial stdio \
-		-display gtk \
+		-display sdl \
 		-no-reboot \
 		-no-shutdown \
-		-m 512M
+		-m 2G \
+		-smp 2 \
+		-cpu max \
+		-accel tcg,thread=multi
 
 # --- Run in QEMU with no display (serial only) ---
 run-serial: build

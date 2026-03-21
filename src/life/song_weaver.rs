@@ -127,7 +127,7 @@ pub fn tick(age: u32, valence: u16, consciousness: u16) {
     };
 
     // Tempo driven by consciousness (lower consciousness = slower)
-    state.tempo = 50 + ((cons * 400) / 1000) as u16;
+    state.tempo = 50 + ((cons as u32 * 400) / 1000) as u16;
     state.note_change_interval = (state.tempo as u32).saturating_add(50);
 
     // Update mood (exponential smoothing toward valence)
@@ -162,7 +162,7 @@ pub fn tick(age: u32, valence: u16, consciousness: u16) {
     // authenticity = how well song matches current mood
     let mood_authenticity = 1000_u16.saturating_sub(state.melody_mood.abs_diff(val) / 4);
 
-    let complexity_norm = (state.complexity as u16 * 1000) / 8;
+    let complexity_norm = (state.complexity as u32 * 1000 / 8) as u16;
     state.song_beauty =
         ((state.harmony_level as u32 * complexity_norm as u32 * mood_authenticity as u32)
             / 1_000_000_000)
@@ -174,7 +174,7 @@ fn compose_note(state: &mut SongWeaverState, valence: u16, consciousness: u16) {
     // Pitch: center on valence (happy=high, sad=low)
     // consciousness adds microtonal variation (self-aware = more complex intervals)
     let base_pitch = 300 + (valence / 2);
-    let micro_offset = ((consciousness * 200) / 1000) as u16;
+    let micro_offset = ((consciousness as u32 * 200) / 1000) as u16;
     let pitch = base_pitch.saturating_add(micro_offset).min(1000);
 
     // Duration: lower consciousness = longer notes (more meditative)
@@ -184,11 +184,11 @@ fn compose_note(state: &mut SongWeaverState, valence: u16, consciousness: u16) {
     // Intensity: follows crescendo pattern
     let intensity = if state.crescendo {
         // Rising: start low, peak by end of melody
-        let progress = (state.melody_head as u16 * 1000) / 8;
+        let progress = (state.melody_head as u32 * 1000 / 8) as u16;
         (progress / 2) + 250
     } else {
         // Falling: start high, fade by end
-        let progress = (state.melody_head as u16 * 1000) / 8;
+        let progress = (state.melody_head as u32 * 1000 / 8) as u16;
         750_u16.saturating_sub(progress / 2)
     };
 

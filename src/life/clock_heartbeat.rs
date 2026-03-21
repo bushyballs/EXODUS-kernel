@@ -174,7 +174,7 @@ pub fn tick(age: u32) {
     if state.irregular_beat_count > 2 {
         state.arrhythmia_anxiety = state
             .arrhythmia_anxiety
-            .saturating_add((state.irregular_beat_count.saturating_sub(2)) as u16 * 50)
+            .saturating_add((state.irregular_beat_count.saturating_sub(2)).saturating_mul(50))
             .min(1000);
     } else {
         state.arrhythmia_anxiety = state.arrhythmia_anxiety.saturating_mul(15) / 16;

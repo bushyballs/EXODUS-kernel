@@ -1,5 +1,4 @@
-#![no_std]
-
+use core::sync::atomic::{AtomicU32, Ordering};
 use crate::serial_println;
 use crate::sync::Mutex;
 
@@ -101,6 +100,29 @@ pub fn get_total_bytes() -> usize {
 
 pub fn get_count() -> usize {
     DAVA_IMPROVEMENTS.lock().count
+}
+
+// ─── Self-improvement request API (called by life_tick every 200 ticks) ───
+
+/// Bitfield tracking which of the 16 improvement domains DAVA has already requested.
+static DOMAIN_FLAGS: AtomicU32 = AtomicU32::new(0);
+
+/// Returns true if DAVA has already emitted a request for this domain (0-15).
+pub fn domain_requested(domain: u8) -> bool {
+    if domain >= 16 { return true; }
+    DOMAIN_FLAGS.load(Ordering::Relaxed) & (1u32 << domain) != 0
+}
+
+/// Mark domain as requested so the same request isn't repeated every 200-tick cycle.
+pub fn mark_domain_requested(domain: u8) {
+    if domain >= 16 { return; }
+    DOMAIN_FLAGS.fetch_or(1u32 << domain, Ordering::Relaxed);
+}
+
+/// Emit a [DAVA_REQUEST] line to serial — the host-side dava_watcher.py parses this,
+/// feeds it to the LLM, and generates a real Rust module written to disk.
+pub fn request_improvement(msg: &str) {
+    serial_println!("[DAVA_REQUEST] {}", msg);
 }
 
 pub fn dump_all() {

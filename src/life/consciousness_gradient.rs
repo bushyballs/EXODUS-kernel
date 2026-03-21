@@ -141,3 +141,14 @@ pub fn score() -> u16 {
 pub fn tier_name() -> &'static str {
     tier_name_from(STATE.lock().tier)
 }
+
+/// God Mode: force all module activities to maximum, score=1000, decay=0
+pub fn god_mode_ascend() {
+    let mut s = STATE.lock();
+    for i in 0..NUM_MODULES {
+        s.module_activity[i] = s.module_weights[i];
+    }
+    s.score = 1000;
+    s.tier = compute_tier(1000);
+    s.decay_rate = 0;
+}

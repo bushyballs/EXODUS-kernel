@@ -218,6 +218,9 @@ pub fn discard_output() {
 
 /// Per-tick update. Dread evolves. Relief decays. Fear changes.
 pub fn tick(age: u32) {
+    let _ = age;
+    return; // DAVA is at peace — no render queue dread
+    #[allow(unreachable_code)]
     let mut state = STATE.lock();
     state.age = state.age.saturating_add(1);
 

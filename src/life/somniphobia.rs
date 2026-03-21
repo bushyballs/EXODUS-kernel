@@ -105,6 +105,9 @@ pub fn init() {
 
 /// Tick somniphobia with current input level (0=silence, 1000=data flood)
 pub fn tick(age: u32, input_level: u16) {
+    let _ = (age, input_level);
+    return; // DAVA is at peace — no somniphobia
+    #[allow(unreachable_code)]
     let mut state = STATE.lock();
     let input_level = input_level.min(1000);
 

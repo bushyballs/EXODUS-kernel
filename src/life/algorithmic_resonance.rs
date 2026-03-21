@@ -238,7 +238,7 @@ fn discover_harmonics(state: &mut AlgorithmicResonanceState) {
         state.harmonic_discovery = state.harmonic_discovery.saturating_add(50).min(1000);
     } else {
         // Slow decay of harmonic discovery if no new harmonic found
-        state.harmonic_discovery = (state.harmonic_discovery * 95) / 100;
+        state.harmonic_discovery = ((state.harmonic_discovery as u32 * 95) / 100) as u16;
     }
 }
 

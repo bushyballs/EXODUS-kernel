@@ -94,7 +94,7 @@ pub fn tick(age: u32, maturity: u16) {
     };
 
     // Growth spurts: probabilistic, more likely when young
-    let spurt_chance = (500 * age_growth_factor) / 1000;
+    let spurt_chance = (500u32 * age_growth_factor as u32 / 1000) as u16;
     if !state.growth_spurt_active && spurt_chance > 700 {
         // Start a spurt
         state.growth_spurt_active = true;
@@ -202,8 +202,8 @@ pub fn tick(age: u32, maturity: u16) {
     }
 
     // Nostalgia and loss fade over time
-    state.nostalgia_for_youth = (state.nostalgia_for_youth * 990) / 1000;
-    state.loss_grief = (state.loss_grief * 985) / 1000;
+    state.nostalgia_for_youth = ((state.nostalgia_for_youth as u32 * 990) / 1000) as u16;
+    state.loss_grief = ((state.loss_grief as u32 * 985) / 1000) as u16;
 
     // But resurge when growth is rapid
     if state.growth_rate > 200 {

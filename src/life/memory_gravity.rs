@@ -141,7 +141,7 @@ pub fn tick(age: u32) {
     // --- PHASE 6: Mobility Cost ---
     // Heavy data slows you down.
     // Mobility cost = gravitational_pull capped at 900 (always some speed left).
-    state.mobility_cost = (state.gravitational_pull * 95 / 100).min(900);
+    state.mobility_cost = (state.gravitational_pull.saturating_mul(95) / 100).min(900);
 
     // --- PHASE 7: Terminal Velocity ---
     // Maximum speed = 1000 - mobility_cost

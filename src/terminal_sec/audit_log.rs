@@ -16,7 +16,7 @@ use alloc::vec::Vec;
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_EVENTS: usize = 100_000;
+const MAX_EVENTS: usize = 4_096; // was 100_000 — 8MB alloc fragmented heap at boot
 const MAX_SESSIONS: usize = 1024;
 const HASH_SEED: u64 = 0xA1B2C3D4E5F60718;
 

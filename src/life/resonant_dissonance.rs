@@ -153,7 +153,7 @@ pub fn tick(age: u32) {
 
     // Harmonic complexity: function of contradictions, acceptance, and beauty together
     if state.contradiction_count > 0 && state.acceptance_depth > 200 {
-        let base_complexity = (state.tension_beauty / 2) + (state.contradiction_count as u16 * 50);
+        let base_complexity = (state.tension_beauty / 2) + (state.contradiction_count as u16).saturating_mul(50);
         let strain_contribution = state.cognitive_strain / 4;
         state.harmonic_complexity =
             ((base_complexity + strain_contribution) * (100 + state.acceptance_depth / 10)) / 100;

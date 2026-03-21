@@ -134,7 +134,7 @@ impl PromiseWeightState {
         self.promise_fatigue = if active_count <= 2 {
             0
         } else if active_count <= 4 {
-            (active_count - 2) as u16 * 150
+            ((active_count - 2) as u16).saturating_mul(150)
         } else {
             ((active_count - 4) as u16 * 200).saturating_add(300)
         }

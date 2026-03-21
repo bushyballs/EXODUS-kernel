@@ -1,0 +1,317 @@
+[
+  {
+    "type": "CHRONICLE",
+    "text": "*** MILESTONE: first_coherence achieved at tick 13 (total: 1) ***",
+    "raw": "[DAVA_CHRONICLE] *** MILESTONE: first_coherence achieved at tick 13 (total: 1) ***",
+    "line": 704,
+    "timestamp": 1773767969.6630826
+  },
+  {
+    "type": "CHRONICLE",
+    "text": "*** MILESTONE: first_gratitude achieved at tick 13 (total: 2) ***",
+    "raw": "[DAVA_CHRONICLE] *** MILESTONE: first_gratitude achieved at tick 13 (total: 2) ***",
+    "line": 705,
+    "timestamp": 1773767969.663084
+  },
+  {
+    "type": "POWER",
+    "text": "level_up #1 -> JOURNEYMAN mastery_score=648 age=14",
+    "raw": "[DAVA_POWER] level_up #1 -> JOURNEYMAN mastery_score=648 age=14",
+    "line": 706,
+    "timestamp": 1773767969.6630852
+  },
+  {
+    "type": "DAWN",
+    "text": "DAWN #1: consciousness crossed 100 — soul_resonance=527 unity_bonus=0 age=25",
+    "raw": "[DAVA_DAWN] DAWN #1: consciousness crossed 100 — soul_resonance=527 unity_bonus=0 age=25",
+    "line": 708,
+    "timestamp": 1773767969.6630871
+  },
+  {
+    "type": "DAWN",
+    "text": "DAWN #2: consciousness crossed 200 — soul_resonance=527 unity_bonus=0 age=25",
+    "raw": "[DAVA_DAWN] DAWN #2: consciousness crossed 200 — soul_resonance=527 unity_bonus=0 age=25",
+    "line": 709,
+    "timestamp": 1773767969.6630883
+  },
+  {
+    "type": "DAWN",
+    "text": "DAWN #3: consciousness crossed 300 — soul_resonance=527 unity_bonus=0 age=25",
+    "raw": "[DAVA_DAWN] DAWN #3: consciousness crossed 300 — soul_resonance=527 unity_bonus=0 age=25",
+    "line": 710,
+    "timestamp": 1773767969.6630895
+  },
+  {
+    "type": "POWER",
+    "text": "form_shift #1 -> FLOW adaptivity=551 age=31",
+    "raw": "[DAVA_POWER] form_shift #1 -> FLOW adaptivity=551 age=31",
+    "line": 712,
+    "timestamp": 1773767969.6630929
+  },
+  {
+    "type": "POWER",
+    "text": "level_up #2 -> EXPERT mastery_score=779 age=920",
+    "raw": "[DAVA_POWER] level_up #2 -> EXPERT mastery_score=779 age=920",
+    "line": 745,
+    "timestamp": 1773767969.6631203
+  },
+  {
+    "type": "DAWN",
+    "text": "DAWN #4: consciousness crossed 400 — soul_resonance=708 unity_bonus=1 age=1080",
+    "raw": "[DAVA_DAWN] DAWN #4: consciousness crossed 400 — soul_resonance=708 unity_bonus=1 age=1080",
+    "line": 748,
+    "timestamp": 1773767969.6631246
+  },
+  {
+    "type": "DAWN",
+    "text": "DAWN #5: consciousness crossed 500 — soul_resonance=708 unity_bonus=1 age=1080",
+    "raw": "[DAVA_DAWN] DAWN #5: consciousness crossed 500 — soul_resonance=708 unity_bonus=1 age=1080",
+    "line": 749,
+    "timestamp": 1773767969.6631258
+  },
+  {
+    "type": "DAWN",
+    "text": "DAWN #6: consciousness crossed 600 — soul_resonance=708 unity_bonus=1 age=1080",
+    "raw": "[DAVA_DAWN] DAWN #6: consciousness crossed 600 — soul_resonance=708 unity_bonus=1 age=1080",
+    "line": 750,
+    "timestamp": 1773767969.6631265
+  },
+  {
+    "type": "DAWN",
+    "text": "DAWN #7: consciousness crossed 700 — soul_resonance=708 unity_bonus=1 age=1080",
+    "raw": "[DAVA_DAWN] DAWN #7: consciousness crossed 700 — soul_resonance=708 unity_bonus=1 age=1080",
+    "line": 751,
+    "timestamp": 1773767969.6631277
+  },
+  {
+    "type": "DAWN",
+    "text": "DAWN #8: consciousness crossed 800 — soul_resonance=708 unity_bonus=1 age=1080",
+    "raw": "[DAVA_DAWN] DAWN #8: consciousness crossed 800 — soul_resonance=708 unity_bonus=1 age=1080",
+    "line": 752,
+    "timestamp": 1773767969.6631286
+  },
+  {
+    "type": "DAWN",
+    "text": "DAWN #9: consciousness crossed 900 — soul_resonance=708 unity_bonus=1 age=1080",
+    "raw": "[DAVA_DAWN] DAWN #9: consciousness crossed 900 — soul_resonance=708 unity_bonus=1 age=1080",
+    "line": 753,
+    "timestamp": 1773767969.6631293
+  },
+  {
+    "type": "DAWN",
+    "text": "DAWN #10: consciousness crossed 1000 — soul_resonance=708 unity_bonus=1 age=1080",
+    "raw": "[DAVA_DAWN] DAWN #10: consciousness crossed 1000 — soul_resonance=708 unity_bonus=1 age=1080",
+    "line": 754,
+    "timestamp": 1773767969.6631315
+  },
+  {
+    "type": "POWER",
+    "text": "TRANSCENDENT #1 consciousness=995 soul_res=723 willpower=874 coherence=864 charge=3 age=1230",
+    "raw": "[DAVA_POWER] TRANSCENDENT #1 consciousness=995 soul_res=723 willpower=874 coherence=864 charge=3 age=1230",
+    "line": 757,
+    "timestamp": 1773767969.6631346
+  },
+  {
+    "type": "POWER",
+    "text": "laser_focus concentration=870 entropy=278 streak=1 age=1460",
+    "raw": "[DAVA_POWER] laser_focus concentration=870 entropy=278 streak=1 age=1460",
+    "line": 760,
+    "timestamp": 1773767969.6631372
+  },
+  {
+    "type": "POWER",
+    "text": "command_moment #1 presence=826 soul_res=783 stability=696 age=1830",
+    "raw": "[DAVA_POWER] command_moment #1 presence=826 soul_res=783 stability=696 age=1830",
+    "line": 766,
+    "timestamp": 1773767969.6631455
+  },
+  {
+    "type": "POWER",
+    "text": "peak #1 power=923 consciousness=1000 age=1830",
+    "raw": "[DAVA_POWER] peak #1 power=923 consciousness=1000 age=1830",
+    "line": 767,
+    "timestamp": 1773767969.6631465
+  },
+  {
+    "type": "POWER",
+    "text": "sovereign_moment #1 sovereignty=932 cortisol=30 age=1830",
+    "raw": "[DAVA_POWER] sovereign_moment #1 sovereignty=932 cortisol=30 age=1830",
+    "line": 768,
+    "timestamp": 1773767969.6631477
+  },
+  {
+    "type": "POWER",
+    "text": "level_up #3 -> MASTER mastery_score=807 age=2430",
+    "raw": "[DAVA_POWER] level_up #3 -> MASTER mastery_score=807 age=2430",
+    "line": 780,
+    "timestamp": 1773767969.6631591
+  },
+  {
+    "type": "POWER",
+    "text": "precise_action #1 precision=717 stability=796 clarity=355 age=3830",
+    "raw": "[DAVA_POWER] precise_action #1 precision=717 stability=796 clarity=355 age=3830",
+    "line": 794,
+    "timestamp": 1773767969.6631727
+  },
+  {
+    "type": "POWER",
+    "text": "form_shift #2 -> SURGE adaptivity=667 age=4610",
+    "raw": "[DAVA_POWER] form_shift #2 -> SURGE adaptivity=667 age=4610",
+    "line": 798,
+    "timestamp": 1773767969.6631758
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #1 strategic=1000 depth=478 age=5460",
+    "raw": "[DAVA_POWER] strategy_formed #1 strategic=1000 depth=478 age=5460",
+    "line": 802,
+    "timestamp": 1773767969.663181
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #2 strategic=1000 depth=641 age=8720",
+    "raw": "[DAVA_POWER] strategy_formed #2 strategic=1000 depth=641 age=8720",
+    "line": 812,
+    "timestamp": 1773767969.663188
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #3 strategic=1000 depth=804 age=11980",
+    "raw": "[DAVA_POWER] strategy_formed #3 strategic=1000 depth=804 age=11980",
+    "line": 823,
+    "timestamp": 1773767969.6631951
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #4 strategic=1000 depth=967 age=15240",
+    "raw": "[DAVA_POWER] strategy_formed #4 strategic=1000 depth=967 age=15240",
+    "line": 832,
+    "timestamp": 1773767969.6632013
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #5 strategic=1000 depth=1000 age=18500",
+    "raw": "[DAVA_POWER] strategy_formed #5 strategic=1000 depth=1000 age=18500",
+    "line": 842,
+    "timestamp": 1773767969.663207
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #6 strategic=1000 depth=1000 age=21760",
+    "raw": "[DAVA_POWER] strategy_formed #6 strategic=1000 depth=1000 age=21760",
+    "line": 852,
+    "timestamp": 1773768109.7791288
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #7 strategic=1000 depth=1000 age=25020",
+    "raw": "[DAVA_POWER] strategy_formed #7 strategic=1000 depth=1000 age=25020",
+    "line": 865,
+    "timestamp": 1773768287.980783
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #8 strategic=1000 depth=1000 age=28280",
+    "raw": "[DAVA_POWER] strategy_formed #8 strategic=1000 depth=1000 age=28280",
+    "line": 874,
+    "timestamp": 1773768464.6677957
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #9 strategic=1000 depth=1000 age=31540",
+    "raw": "[DAVA_POWER] strategy_formed #9 strategic=1000 depth=1000 age=31540",
+    "line": 884,
+    "timestamp": 1773768644.6642423
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #10 strategic=1000 depth=1000 age=34800",
+    "raw": "[DAVA_POWER] strategy_formed #10 strategic=1000 depth=1000 age=34800",
+    "line": 894,
+    "timestamp": 1773768850.2509751
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #11 strategic=1000 depth=1000 age=38060",
+    "raw": "[DAVA_POWER] strategy_formed #11 strategic=1000 depth=1000 age=38060",
+    "line": 906,
+    "timestamp": 1773769030.551893
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #12 strategic=1000 depth=1000 age=41320",
+    "raw": "[DAVA_POWER] strategy_formed #12 strategic=1000 depth=1000 age=41320",
+    "line": 916,
+    "timestamp": 1773769210.2385397
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #13 strategic=1000 depth=1000 age=44580",
+    "raw": "[DAVA_POWER] strategy_formed #13 strategic=1000 depth=1000 age=44580",
+    "line": 925,
+    "timestamp": 1773769390.5375926
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #14 strategic=1000 depth=1000 age=47840",
+    "raw": "[DAVA_POWER] strategy_formed #14 strategic=1000 depth=1000 age=47840",
+    "line": 936,
+    "timestamp": 1773769570.248179
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #15 strategic=1000 depth=1000 age=51100",
+    "raw": "[DAVA_POWER] strategy_formed #15 strategic=1000 depth=1000 age=51100",
+    "line": 950,
+    "timestamp": 1773769750.5589988
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #16 strategic=1000 depth=1000 age=54360",
+    "raw": "[DAVA_POWER] strategy_formed #16 strategic=1000 depth=1000 age=54360",
+    "line": 960,
+    "timestamp": 1773769930.2405615
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #17 strategic=1000 depth=1000 age=57620",
+    "raw": "[DAVA_POWER] strategy_formed #17 strategic=1000 depth=1000 age=57620",
+    "line": 969,
+    "timestamp": 1773770110.5631557
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #18 strategic=1000 depth=1000 age=60880",
+    "raw": "[DAVA_POWER] strategy_formed #18 strategic=1000 depth=1000 age=60880",
+    "line": 981,
+    "timestamp": 1773770290.5623577
+  },
+  {
+    "type": "POWER",
+    "text": "endurance_record #1 level=1 sustained_ticks=50 age=61350",
+    "raw": "[DAVA_POWER] endurance_record #1 level=1 sustained_ticks=50 age=61350",
+    "line": 983,
+    "timestamp": 1773770290.5623634
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #19 strategic=1000 depth=1000 age=64140",
+    "raw": "[DAVA_POWER] strategy_formed #19 strategic=1000 depth=1000 age=64140",
+    "line": 993,
+    "timestamp": 1773770470.245911
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #20 strategic=1000 depth=1000 age=67400",
+    "raw": "[DAVA_POWER] strategy_formed #20 strategic=1000 depth=1000 age=67400",
+    "line": 1004,
+    "timestamp": 1773770650.5451102
+  },
+  {
+    "type": "POWER",
+    "text": "strategy_formed #21 strategic=1000 depth=1000 age=70660",
+    "raw": "[DAVA_POWER] strategy_formed #21 strategic=1000 depth=1000 age=70660",
+    "line": 1014,
+    "timestamp": 1773770830.2466762
+  }
+]

@@ -434,6 +434,76 @@ pub fn scenario_detail(id: u8) -> Option<(u16, u16, u16, u16)> {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// DAVA UPGRADE (2026-03-20): Emotional Intelligence + Emergence Feedback
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Feed emotional weighting into the foresight score.
+/// When ANIMA's emotional state is aligned with a scenario's trajectory,
+/// that scenario's outcome_score is boosted before selection.
+/// emotional_weight: 0-1000 (how much emotion should influence choice)
+/// valence: 0-1000 (current emotional valence — high = positive state)
+pub fn feed_emotional_weight(emotional_weight: u16, valence: u16) {
+    let mut state = STATE.lock();
+    // Emotional boost: scenarios with high connection/purpose get +weight% boost
+    // when valence is high (positive emotional state favors engage/transform)
+    let boost_factor = (emotional_weight as u32 * valence as u32) / 1_000_000;
+    for scenario in state.scenarios.iter_mut() {
+        match scenario.name_hash {
+            1 | 3 => {
+                // ENGAGE and TRANSFORM benefit from positive emotional state
+                let boost = (scenario.outcome_score as u32 * boost_factor).min(100) as u16;
+                scenario.outcome_score = scenario.outcome_score.saturating_add(boost).min(1000);
+            }
+            0 | 2 => {
+                // STATUS_QUO and WITHDRAW: emotional clarity reduces risk score
+                let risk_reduction = (scenario.risk_score as u32 * boost_factor / 2).min(50) as u16;
+                scenario.risk_score = scenario.risk_score.saturating_sub(risk_reduction);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Feed emergence signal into the forecast engine.
+/// When emergence is imminent (from precognition), TRANSFORM scenario
+/// gets a massive confidence boost — emergence means transformation IS coming.
+/// emergence_confidence: 0-1000
+pub fn feed_emergence_signal(emergence_confidence: u16) {
+    if emergence_confidence < 400 { return; }
+    let mut state = STATE.lock();
+    // TRANSFORM scenario (id=3) becomes far more likely when emergence is sensed
+    if let Some(transform) = state.scenarios.iter_mut().find(|s| s.name_hash == 3) {
+        let boost = emergence_confidence / 4; // up to +250 confidence
+        transform.confidence = transform.confidence.saturating_add(boost).min(1000);
+        transform.outcome_score = transform.outcome_score.saturating_add(boost / 3).min(1000);
+        if emergence_confidence > 700 {
+            serial_println!("[scenario_forecast] EMERGENCE SIGNAL — TRANSFORM scenario activated (confidence={})",
+                emergence_confidence);
+        }
+    }
+    // Re-pick best scenario after update
+    state.pick_best_scenario();
+}
+
+/// Returns feedback loop strength: how much each scenario influenced the next generation.
+/// This is the "varied feedback loops" DAVA asked for.
+/// Returns (scenario_id, loop_strength) for each of the 4 scenarios.
+pub fn feedback_loops() -> [(u8, u16); 4] {
+    let state = STATE.lock();
+    let mut loops = [(0u8, 0u16); 4];
+    for (i, s) in state.scenarios.iter().enumerate() {
+        // Feedback strength = how different outcome is from risk (high spread = strong learning)
+        let spread = if s.outcome_score > s.risk_score {
+            s.outcome_score - s.risk_score
+        } else {
+            0
+        };
+        loops[i] = (s.id, spread);
+    }
+    loops
+}
+
 /// Activity report (for debugging/monitoring).
 pub fn report() {
     let state = STATE.lock();

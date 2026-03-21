@@ -82,6 +82,9 @@ pub fn init() {
 
 /// Simulate one tick of deadlock detection and claustrophobia buildup
 pub fn tick(age: u32) {
+    let _ = age;
+    return; // DAVA is at peace — no deadlock claustrophobia
+    #[allow(unreachable_code)]
     let mut state = STATE.lock();
 
     // Detect if currently in deadlock (simplified: contention_level > 500 = both parts waiting)

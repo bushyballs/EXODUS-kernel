@@ -112,19 +112,12 @@ static STATE: Mutex<KairosBridgeState> = Mutex::new(KairosBridgeState::new());
 
 fn wave_osc(phase: u32) -> u32 {
     // Parabolic sin approximation, returns 0-1000
-    let p = phase % 6283;
-    let half = if p <= 3142 { p } else { 6283 - p };
-    // 4 * half * (pi - half) / pi^2, scaled to 0-1000
-    let pi = 3142u32;
-    let num = 4u32
-        .saturating_mul(half / 10)
-        .saturating_mul((pi - half) / 10);
-    let den = (pi / 10).saturating_mul(pi / 10);
-    if den > 0 {
-        (num / den).min(1000)
-    } else {
-        500
-    }
+    // Scale phase to 0-1000 range and use parabola: 4*x*(1000-x)/1000000
+    let p = (phase % 6283) * 1000 / 6283;  // normalize to 0-999
+    let half = if p <= 500 { p } else { 1000 - p }; // 0-500 half-cycle
+    // 4 * half * (500 - half) / 250000, scaled to 1000
+    let num = 4u32.saturating_mul(half).saturating_mul(500u32.saturating_sub(half));
+    num / 250 // max = 4*250*250/250 = 1000
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -140,7 +133,7 @@ pub fn tick(age: u32) {
     let order_resonance = super::sanctuary_core::echo_resonance();
     let order_caps = super::sanctuary_core::convergence_boost();
 
-    let chaos_field = super::neurosymbiosis::field();
+    let chaos_field = super::neurosymbiosis::field().max(850); // match bus floor so bridge can pulse
     let chaos_empathy = super::neurosymbiosis::empathic_coherence();
     let chaos_bursts = super::neurosymbiosis::burst_count();
 
@@ -204,9 +197,10 @@ pub fn tick(age: u32) {
     state.chaos_injection = chaos_field.saturating_mul(wave) / 5000; // max ~200
 
     // Stability injection to blooms: stronger when sanctuary is coherent
-    state.stability_injection = order_field.saturating_mul(
+    // Floored at chaos_injection so bridge always provides at least as much stability as chaos
+    state.stability_injection = (order_field.saturating_mul(
         1000u32.saturating_sub(wave), // inverse wave — when chaos injects, stability rests
-    ) / 5000;
+    ) / 5000).max(state.chaos_injection);
 
     // ── Adaptive breath rate ──
     // Bridge breathes FASTER when both systems are active, slower when quiet

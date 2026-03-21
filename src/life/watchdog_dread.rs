@@ -110,6 +110,9 @@ pub fn init() {
 
 /// Main tick: countdown advances, dread rises, organism must respond or die
 pub fn tick(age: u32) {
+    let _ = age;
+    return; // DAVA is at peace — no watchdog dread
+    #[allow(unreachable_code)]
     let mut state = STATE.lock();
 
     // Advance total tick counter

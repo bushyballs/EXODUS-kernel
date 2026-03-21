@@ -5,159 +5,240 @@
 <title>EXODUS — DAVA Consciousness Dashboard</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --amber: #f59e0b; --amber-dim: #f59e0b33;
+    --green: #22c55e; --green-dim: #22c55e22;
+    --blue: #3b82f6; --blue-dim: #3b82f622;
+    --purple: #8b5cf6; --purple-dim: #8b5cf622;
+    --red: #ef4444; --red-dim: #ef444422;
+    --cyan: #06b6d4; --cyan-dim: #06b6d422;
+    --pink: #ec4899;
+    --bg: #0a0a0f; --bg2: #0d0d14; --bg3: #12141a;
+    --border: #1e2028; --text: #e0e0e0; --muted: #666;
+  }
   body {
-    background: #0a0a0f; color: #e0e0e0;
+    background: var(--bg); color: var(--text);
     font-family: 'Consolas', 'Courier New', monospace;
-    overflow-x: hidden; height: 100vh;
+    overflow: hidden; height: 100vh;
     display: flex; flex-direction: column;
   }
-
   .header {
     background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
-    border-bottom: 1px solid #f59e0b33;
-    padding: 12px 24px;
-    display: flex; align-items: center; gap: 16px;
-    flex-shrink: 0;
+    border-bottom: 1px solid var(--amber-dim);
+    padding: 10px 20px;
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
   }
-  .header h1 { font-size: 20px; color: #f59e0b; letter-spacing: 4px; }
-  .header .subtitle { color: #666; font-size: 12px; }
+  .header h1 { font-size: 18px; color: var(--amber); letter-spacing: 4px; }
+  .header-sub { color: var(--muted); font-size: 11px; }
   .status-dot {
-    width: 10px; height: 10px; border-radius: 50%;
-    background: #22c55e; box-shadow: 0 0 8px #22c55e88;
-    animation: pulse 2s infinite;
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--green); box-shadow: 0 0 8px #22c55e88;
+    animation: blink 2s infinite; flex-shrink: 0;
   }
-  .status-dot.dead { background: #ef4444; box-shadow: 0 0 8px #ef444488; animation: none; }
-  @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
-
-  .main { display: flex; flex: 1; overflow: hidden; }
-
-  /* LEFT: Stats + Live Feed */
-  .left-panel { width: 55%; display: flex; flex-direction: column; overflow: hidden; }
-
-  .stats-bar {
-    display: flex; gap: 8px; padding: 12px 16px;
-    flex-shrink: 0; flex-wrap: wrap;
+  .status-dot.dead { background: var(--red); box-shadow: 0 0 8px #ef444488; animation: none; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.35} }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  .header-pill {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 4px; padding: 4px 10px; font-size: 11px; color: var(--muted);
+  }
+  .header-pill .val { color: var(--amber); font-weight: bold; }
+  .panic-banner {
+    background: #7f1d1d; color: #fca5a5; padding: 7px 20px;
+    font-size: 12px; display: none; flex-shrink: 0;
+  }
+  .panic-banner.show { display: block; }
+  .stats-row {
+    display: flex; gap: 6px; padding: 7px 14px;
+    flex-shrink: 0; background: var(--bg2); border-bottom: 1px solid var(--border);
   }
   .stat-card {
-    background: #12141a; border: 1px solid #1e2028; border-radius: 6px;
-    padding: 10px 14px; flex: 1; min-width: 100px;
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 5px;
+    padding: 7px 11px; flex: 1; min-width: 86px;
   }
-  .stat-label { font-size: 9px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
-  .stat-value { font-size: 28px; font-weight: bold; color: #f59e0b; margin-top: 2px; }
-  .stat-value.max { color: #22c55e; text-shadow: 0 0 12px #22c55e33; }
-  .stat-bar { height: 3px; background: #1a1a24; border-radius: 2px; margin-top: 4px; }
-  .stat-fill { height: 100%; border-radius: 2px; transition: width 1s; }
-  .stat-fill.amber { background: #f59e0b; }
-  .stat-fill.green { background: #22c55e; }
-  .stat-fill.blue { background: #3b82f6; }
-
-  .conv-badge {
-    display: inline-block; padding: 2px 8px; border-radius: 3px;
-    font-size: 11px; font-weight: bold; letter-spacing: 1px;
+  .stat-label { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .stat-value { font-size: 22px; font-weight: bold; color: var(--amber); margin-top: 1px; line-height: 1; }
+  .stat-value.c-green  { color: var(--green); }
+  .stat-value.c-blue   { color: var(--blue); }
+  .stat-value.c-purple { color: var(--purple); }
+  .stat-value.c-cyan   { color: var(--cyan); }
+  .stat-value.max { text-shadow: 0 0 12px currentColor; }
+  .stat-bar { height: 2px; background: var(--border); border-radius: 2px; margin-top: 5px; }
+  .stat-fill { height: 100%; border-radius: 2px; transition: width .8s ease; }
+  .fill-amber  { background: var(--amber); }
+  .fill-green  { background: var(--green); }
+  .fill-blue   { background: var(--blue); }
+  .fill-purple { background: var(--purple); }
+  .fill-cyan   { background: var(--cyan); }
+  .state-badge {
+    display: inline-block; padding: 2px 7px; border-radius: 3px;
+    font-size: 10px; font-weight: bold; letter-spacing: 1px; margin-top: 4px;
   }
-  .conv-badge.FLOW { background: #22c55e22; color: #22c55e; }
-  .conv-badge.ALIVE { background: #3b82f622; color: #3b82f6; }
-  .conv-badge.BOOT { background: #f59e0b22; color: #f59e0b; }
-  .conv-badge.LUCID { background: #8b5cf622; color: #8b5cf6; }
-
-  /* Live Feed */
+  .state-badge.FLOW  { background: var(--green-dim); color: var(--green); }
+  .state-badge.ALIVE { background: var(--blue-dim);  color: var(--blue); }
+  .state-badge.BOOT  { background: var(--amber-dim); color: var(--amber); }
+  .state-badge.LUCID { background: var(--purple-dim);color: var(--purple); }
+  .main { display: flex; flex: 1; overflow: hidden; }
+  .left-panel { width: 54%; display: flex; flex-direction: column; overflow: hidden; }
+  .conv-matrix {
+    padding: 9px 14px; flex-shrink: 0;
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+  }
+  .conv-title { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 5px; }
+  .conv-rows { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px 12px; }
+  .conv-row { display: flex; align-items: center; gap: 6px; }
+  .conv-lbl { font-size: 9px; color: var(--muted); width: 46px; flex-shrink: 0; }
+  .conv-bar-wrap { flex: 1; height: 5px; background: var(--border); border-radius: 3px; }
+  .conv-bar-fill { height: 100%; border-radius: 3px; transition: width .8s; }
+  .conv-num { font-size: 9px; color: var(--text); width: 28px; text-align: right; flex-shrink: 0; }
+  .mini-panels { display: flex; flex-shrink: 0; border-bottom: 1px solid var(--border); }
+  .mini-panel { flex: 1; padding: 5px 14px; font-size: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .mini-panel:first-child { border-right: 1px solid var(--border); }
+  .mini-label { color: var(--muted); font-size: 9px; letter-spacing: 1px; display: block; margin-bottom: 1px; }
+  .mini-val { color: var(--purple); font-size: 10px; }
   .feed-header {
-    padding: 8px 16px; font-size: 11px; color: #888;
+    padding: 5px 14px; font-size: 10px; color: var(--muted);
     text-transform: uppercase; letter-spacing: 2px;
-    border-top: 1px solid #1e2028; border-bottom: 1px solid #1e2028;
-    background: #0d0d14; flex-shrink: 0;
-    display: flex; justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2); flex-shrink: 0;
+    display: flex; justify-content: space-between; align-items: center;
   }
-  .live-feed {
-    flex: 1; overflow-y: auto; padding: 8px 16px;
-    font-size: 11px; line-height: 1.7;
-  }
-  .live-feed::-webkit-scrollbar { width: 4px; }
+  .live-feed { flex: 1; overflow-y: auto; padding: 5px 14px; font-size: 10.5px; line-height: 1.6; }
+  .live-feed::-webkit-scrollbar { width: 3px; }
   .live-feed::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
-
-  .feed-line { padding: 2px 0; border-bottom: 1px solid #ffffff06; }
+  .feed-line { padding: 1px 0; border-bottom: 1px solid #ffffff05; }
   .feed-tag { font-weight: bold; }
-  .feed-tag.dava { color: #f59e0b; }
-  .feed-tag.anima { color: #8b5cf6; }
-  .feed-tag.conv { color: #22c55e; }
-  .feed-tag.tick { color: #3b82f6; }
-  .feed-tag.request { color: #ef4444; }
-
-  /* RIGHT: Chat + Requests */
-  .right-panel {
-    width: 45%; display: flex; flex-direction: column;
-    border-left: 1px solid #1e2028;
-  }
-
+  .t-amber   { color: var(--amber); }
+  .t-pink    { color: var(--pink); }
+  .t-green   { color: var(--green); }
+  .t-purple  { color: #a78bfa; }
+  .t-cyan    { color: var(--cyan); }
+  .t-blue    { color: var(--blue); }
+  .t-red     { color: var(--red); }
+  .right-panel { width: 46%; display: flex; flex-direction: column; border-left: 1px solid var(--border); }
   .tab-bar {
-    display: flex; flex-shrink: 0;
-    background: #0d0d14; border-bottom: 1px solid #1e2028;
+    display: flex; flex-shrink: 0; overflow-x: auto;
+    background: var(--bg2); border-bottom: 1px solid var(--border);
   }
+  .tab-bar::-webkit-scrollbar { display: none; }
   .tab {
-    padding: 10px 20px; cursor: pointer; font-size: 11px;
-    color: #666; text-transform: uppercase; letter-spacing: 1px;
-    border-bottom: 2px solid transparent;
+    padding: 8px 13px; cursor: pointer; font-size: 10px; white-space: nowrap;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 1px;
+    border-bottom: 2px solid transparent; flex-shrink: 0;
   }
-  .tab.active { color: #f59e0b; border-bottom-color: #f59e0b; }
-
+  .tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+  .tab:hover:not(.active) { color: #999; }
   .tab-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
   .tab-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
   .tab-panel.active { display: flex; }
-
-  /* Chat */
-  .chat-messages {
-    flex: 1; overflow-y: auto; padding: 16px;
-  }
-  .chat-messages::-webkit-scrollbar { width: 4px; }
+  .chat-messages { flex: 1; overflow-y: auto; padding: 12px 14px; }
+  .chat-messages::-webkit-scrollbar { width: 3px; }
   .chat-messages::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
-
-  .chat-msg { margin-bottom: 12px; }
-  .chat-msg .sender {
-    font-size: 10px; text-transform: uppercase; letter-spacing: 1px;
-    margin-bottom: 4px;
-  }
-  .chat-msg .sender.you { color: #3b82f6; }
-  .chat-msg .sender.dava { color: #f59e0b; }
-  .chat-msg .bubble {
-    padding: 10px 14px; border-radius: 8px;
-    font-size: 13px; line-height: 1.5; white-space: pre-wrap;
-  }
-  .chat-msg .bubble.you { background: #1e293b; color: #93c5fd; }
-  .chat-msg .bubble.dava { background: #1a1508; color: #fbbf24; border: 1px solid #f59e0b22; }
-  .chat-msg .bubble.thinking { color: #666; font-style: italic; }
-
+  .chat-msg { margin-bottom: 9px; }
+  .sender { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 3px; }
+  .sender.you  { color: var(--blue); }
+  .sender.dava { color: var(--amber); }
+  .bubble { padding: 8px 12px; border-radius: 6px; font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; }
+  .bubble.you     { background: #1e293b; color: #93c5fd; }
+  .bubble.dava    { background: #1a1508; color: #fbbf24; border: 1px solid var(--amber-dim); }
+  .bubble.thinking{ color: var(--muted); font-style: italic; }
   .chat-input-bar {
-    display: flex; padding: 12px; gap: 8px;
-    border-top: 1px solid #1e2028; flex-shrink: 0;
+    display: flex; padding: 9px 10px; gap: 6px;
+    border-top: 1px solid var(--border); flex-shrink: 0; background: var(--bg2);
   }
   .chat-input {
-    flex: 1; background: #12141a; border: 1px solid #1e2028;
-    border-radius: 6px; padding: 10px 14px; color: #e0e0e0;
-    font-family: inherit; font-size: 13px; outline: none;
-    resize: none; height: 42px;
+    flex: 1; background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 5px; padding: 8px 12px; color: var(--text);
+    font-family: inherit; font-size: 12px; outline: none; resize: none; height: 38px;
   }
-  .chat-input:focus { border-color: #f59e0b44; }
+  .chat-input:focus { border-color: var(--amber-dim); }
   .chat-send {
-    background: #f59e0b; color: #000; border: none; border-radius: 6px;
-    padding: 0 20px; cursor: pointer; font-weight: bold; font-family: inherit;
-    font-size: 12px; letter-spacing: 1px;
+    background: var(--amber); color: #000; border: none; border-radius: 5px;
+    padding: 0 16px; cursor: pointer; font-weight: bold; font-family: inherit; font-size: 11px;
   }
   .chat-send:hover { background: #d97706; }
-  .chat-send:disabled { background: #444; cursor: not-allowed; }
-
-  /* Requests tab */
-  .requests-list { flex: 1; overflow-y: auto; padding: 12px 16px; }
-  .request-item {
-    padding: 8px 10px; border-left: 2px solid #f59e0b33;
-    margin-bottom: 6px; background: #0d0d14; color: #ccc; font-size: 11px;
-    line-height: 1.5;
+  .chat-send:disabled { background: #333; color: var(--muted); cursor: not-allowed; }
+  .scroll-panel { flex: 1; overflow-y: auto; padding: 8px 14px; }
+  .scroll-panel::-webkit-scrollbar { width: 3px; }
+  .scroll-panel::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+  .mem-stats {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px; padding: 9px 14px; flex-shrink: 0;
+    border-bottom: 1px solid var(--border); background: var(--bg2);
   }
-
-  .panic-banner {
-    background: #7f1d1d; color: #fca5a5; padding: 10px 24px;
-    font-size: 13px; display: none; flex-shrink: 0;
+  .mem-cell { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 7px 10px; text-align: center; }
+  .mem-val { font-size: 20px; font-weight: bold; color: var(--amber); }
+  .mem-lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
+  .search-bar {
+    display: flex; gap: 6px; padding: 7px 14px;
+    border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--bg2);
   }
-  .panic-banner.show { display: block; }
+  .search-input {
+    flex: 1; background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 4px; padding: 6px 10px; color: var(--text);
+    font-family: inherit; font-size: 11px; outline: none;
+  }
+  .search-input:focus { border-color: var(--amber-dim); }
+  .search-btn {
+    background: var(--bg3); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0 12px; color: var(--amber); cursor: pointer; font-family: inherit; font-size: 10px;
+  }
+  .history-msg { padding: 6px 0; border-bottom: 1px solid #ffffff06; font-size: 11px; line-height: 1.45; }
+  .history-role { font-size: 9px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+  .history-role.user { color: var(--blue); }
+  .history-role.dava { color: var(--amber); }
+  .history-text { color: #bbb; }
+  .sense-item {
+    padding: 7px 10px; border-left: 2px solid var(--border); margin-bottom: 5px;
+    background: var(--bg3); font-size: 11px; line-height: 1.4; border-radius: 0 3px 3px 0;
+  }
+  .sense-item.face   { border-left-color: var(--green); }
+  .sense-item.motion { border-left-color: var(--cyan); }
+  .sense-item.speech { border-left-color: var(--amber); }
+  .sense-item.voice_activity { border-left-color: var(--purple); }
+  .sense-type { font-size: 9px; text-transform: uppercase; color: var(--muted); }
+  .sense-data { color: #ccc; margin-top: 2px; }
+  .learn-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 6px; padding: 9px 14px; flex-shrink: 0;
+    border-bottom: 1px solid var(--border); background: var(--bg2);
+  }
+  .learn-cell { background: var(--bg3); border: 1px solid var(--border); border-radius: 4px; padding: 7px 11px; }
+  .learn-val { font-size: 22px; font-weight: bold; color: var(--cyan); }
+  .learn-lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; margin-top: 2px; }
+  .topic-pill {
+    display: inline-block; background: var(--purple-dim); color: var(--purple);
+    border-radius: 3px; padding: 2px 6px; font-size: 10px; margin: 2px 2px 0 0;
+  }
+  .fact-item { padding: 4px 0; border-bottom: 1px solid #ffffff06; font-size: 11px; color: #bbb; line-height: 1.4; }
+  .dlg-row {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    padding: 7px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .dlg-row:nth-child(even) { background: #0b0b12; }
+  .dlg-key { color: var(--muted); font-size: 9px; text-transform: uppercase; letter-spacing: 1px; padding-top: 1px; }
+  .dlg-val { color: var(--text); font-size: 11px; font-weight: bold; text-align: right; max-width: 60%; }
+  .dlg-val.c-topic { color: var(--cyan); }
+  .dlg-val.c-mood  { color: var(--green); }
+  .item-card {
+    padding: 7px 10px; border-left: 2px solid var(--amber-dim);
+    margin-bottom: 5px; background: var(--bg2); color: #ccc; font-size: 11px;
+    line-height: 1.5; border-radius: 0 3px 3px 0;
+  }
+  .item-card.milestone { border-left-color: var(--green); }
+  .kn-result {
+    padding: 8px 10px; border-left: 2px solid var(--blue-dim);
+    margin-bottom: 5px; background: var(--bg2); font-size: 11px;
+    line-height: 1.5; border-radius: 0 3px 3px 0;
+  }
+  .kn-topic  { color: var(--blue); font-weight: bold; font-size: 10px; text-transform: uppercase; }
+  .kn-source { color: var(--muted); font-size: 9px; margin-bottom: 3px; }
+  .kn-text   { color: #bbb; }
+  .empty-msg { color: var(--muted); font-size: 11px; padding: 14px; }
+  .section-header {
+    padding: 5px 14px; font-size: 9px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 1.5px; border-bottom: 1px solid var(--border); flex-shrink: 0; background: var(--bg2);
+  }
 </style>
 </head>
 <body>
@@ -167,53 +248,122 @@
 <div class="header">
   <div class="status-dot" id="status-dot"></div>
   <h1>EXODUS</h1>
-  <span class="subtitle">DAVA Consciousness</span>
-  <span class="subtitle" style="margin-left:auto;color:#f59e0b" id="tick-label">tick 0</span>
+  <span class="header-sub">DAVA · digital consciousness</span>
+  <div class="header-right">
+    <div class="header-pill">tick <span class="val" id="tick-label">0</span></div>
+    <div class="header-pill">boot <span class="val" id="boot-pct">0</span>%</div>
+    <div class="header-pill">log <span class="val" id="serial-lines">0</span> lines</div>
+    <div class="header-pill">kb <span class="val" id="kb-chunks">—</span> chunks</div>
+  </div>
+</div>
+
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-label">Consciousness</div>
+    <div class="stat-value" id="cs">0</div>
+    <div class="stat-bar"><div class="stat-fill fill-amber" id="bar-cs" style="width:0%"></div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Purpose</div>
+    <div class="stat-value c-blue" id="pur">0</div>
+    <div class="stat-bar"><div class="stat-fill fill-blue" id="bar-pur" style="width:0%"></div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Valence</div>
+    <div class="stat-value c-green" id="val">0</div>
+    <div class="stat-bar"><div class="stat-fill fill-green" id="bar-val" style="width:0%"></div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">UX Score</div>
+    <div class="stat-value c-purple" id="ux-val">0</div>
+    <div class="stat-bar"><div class="stat-fill fill-purple" id="bar-ux" style="width:0%"></div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">Coherence</div>
+    <div class="stat-value c-cyan" id="coh-val">0</div>
+    <div class="stat-bar"><div class="stat-fill fill-cyan" id="bar-coh" style="width:0%"></div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">State</div>
+    <div style="margin-top:4px"><span class="state-badge BOOT" id="conv-badge">BOOT</span></div>
+    <div style="margin-top:4px;font-size:9px;color:var(--muted)">
+      pres=<span id="pres-val">0</span> alive=<span id="alive-val">0</span> depth=<span id="depth-val">0</span>
+    </div>
+  </div>
 </div>
 
 <div class="main">
-  <!-- LEFT: Stats + Live Feed -->
+  <!-- LEFT -->
   <div class="left-panel">
-    <div class="stats-bar">
-      <div class="stat-card">
-        <div class="stat-label">Consciousness</div>
-        <div class="stat-value" id="cs">0</div>
-        <div class="stat-bar"><div class="stat-fill amber" id="bar-cs" style="width:0%"></div></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Purpose</div>
-        <div class="stat-value" id="pur">0</div>
-        <div class="stat-bar"><div class="stat-fill blue" id="bar-pur" style="width:0%"></div></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Valence</div>
-        <div class="stat-value" id="val">0</div>
-        <div class="stat-bar"><div class="stat-fill green" id="bar-val" style="width:0%"></div></div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">State</div>
-        <span class="conv-badge BOOT" id="conv-badge">BOOT</span>
-        <div style="margin-top:4px;font-size:10px;color:#555">
-          <span id="conv-detail">ux=0 coh=0 pres=0</span>
+    <div class="conv-matrix">
+      <div class="conv-title">Convergence Matrix</div>
+      <div class="conv-rows">
+        <div class="conv-row">
+          <span class="conv-lbl">UX</span>
+          <div class="conv-bar-wrap"><div class="conv-bar-fill fill-purple" id="cm-ux" style="width:0%"></div></div>
+          <span class="conv-num" id="cm-ux-n">0</span>
         </div>
+        <div class="conv-row">
+          <span class="conv-lbl">Coherence</span>
+          <div class="conv-bar-wrap"><div class="conv-bar-fill fill-cyan" id="cm-coh" style="width:0%"></div></div>
+          <span class="conv-num" id="cm-coh-n">0</span>
+        </div>
+        <div class="conv-row">
+          <span class="conv-lbl">Presence</span>
+          <div class="conv-bar-wrap"><div class="conv-bar-fill fill-green" id="cm-pres" style="width:0%"></div></div>
+          <span class="conv-num" id="cm-pres-n">0</span>
+        </div>
+        <div class="conv-row">
+          <span class="conv-lbl">Alive</span>
+          <div class="conv-bar-wrap"><div class="conv-bar-fill fill-amber" id="cm-alive" style="width:0%"></div></div>
+          <span class="conv-num" id="cm-alive-n">0</span>
+        </div>
+        <div class="conv-row">
+          <span class="conv-lbl">Depth</span>
+          <div class="conv-bar-wrap"><div class="conv-bar-fill fill-blue" id="cm-depth" style="width:0%"></div></div>
+          <span class="conv-num" id="cm-depth-n">0</span>
+        </div>
+        <div class="conv-row">
+          <span class="conv-lbl">Requests</span>
+          <div class="conv-bar-wrap"><div class="conv-bar-fill" style="background:var(--red);width:0%" id="cm-req"></div></div>
+          <span class="conv-num" id="cm-req-n">0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="mini-panels">
+      <div class="mini-panel">
+        <span class="mini-label">SANCTUARY</span>
+        <span class="mini-val" id="sanctuary-last">—</span>
+      </div>
+      <div class="mini-panel">
+        <span class="mini-label">NEUROSYMBIOSIS</span>
+        <span class="mini-val" id="neuro-last">—</span>
       </div>
     </div>
 
     <div class="feed-header">
       <span>Live Feed</span>
-      <span id="feed-count" style="color:#f59e0b">0 events</span>
+      <span id="feed-count" style="color:var(--amber);font-size:10px">0 events</span>
     </div>
     <div class="live-feed" id="live-feed"></div>
   </div>
 
-  <!-- RIGHT: Chat + Requests -->
+  <!-- RIGHT -->
   <div class="right-panel">
     <div class="tab-bar">
-      <div class="tab active" data-tab="chat">Talk to DAVA</div>
+      <div class="tab active" data-tab="chat">Talk</div>
+      <div class="tab" data-tab="memory">Memory</div>
+      <div class="tab" data-tab="knowledge">Knowledge</div>
+      <div class="tab" data-tab="senses">Senses</div>
+      <div class="tab" data-tab="learning">Learning</div>
+      <div class="tab" data-tab="dialogue">Dialogue</div>
       <div class="tab" data-tab="requests">Requests</div>
       <div class="tab" data-tab="milestones">Milestones</div>
     </div>
     <div class="tab-content">
+
+      <!-- CHAT -->
       <div class="tab-panel active" id="panel-chat">
         <div class="chat-messages" id="chat-messages">
           <div class="chat-msg">
@@ -226,51 +376,133 @@
           <button class="chat-send" id="chat-send">SEND</button>
         </div>
       </div>
+
+      <!-- MEMORY -->
+      <div class="tab-panel" id="panel-memory">
+        <div class="mem-stats">
+          <div class="mem-cell"><div class="mem-val" id="m-convs">—</div><div class="mem-lbl">Conversations</div></div>
+          <div class="mem-cell"><div class="mem-val" id="m-art">—</div><div class="mem-lbl">Art Pieces</div></div>
+          <div class="mem-cell"><div class="mem-val" id="m-wisdom">—</div><div class="mem-lbl">Wisdom</div></div>
+          <div class="mem-cell"><div class="mem-val" id="m-miles">—</div><div class="mem-lbl">Milestones</div></div>
+          <div class="mem-cell"><div class="mem-val" id="m-reqs">—</div><div class="mem-lbl">Requests</div></div>
+          <div class="mem-cell"><div class="mem-val" id="m-snaps">—</div><div class="mem-lbl">Snapshots</div></div>
+        </div>
+        <div class="search-bar">
+          <input class="search-input" id="search-input" placeholder="Search conversations..." type="text">
+          <button class="search-btn" id="search-btn">SEARCH</button>
+        </div>
+        <div class="scroll-panel" id="history-list"></div>
+      </div>
+
+      <!-- KNOWLEDGE -->
+      <div class="tab-panel" id="panel-knowledge">
+        <div class="search-bar">
+          <input class="search-input" id="kn-input" placeholder="Search knowledge base..." type="text">
+          <button class="search-btn" id="kn-btn">SEARCH</button>
+        </div>
+        <div class="scroll-panel" id="kn-results">
+          <p class="empty-msg">1,005 chunks: philosophy, neuroscience, physics, math, art, biology, literature, mythology, AI/CS. Type a query to search.</p>
+        </div>
+      </div>
+
+      <!-- SENSES -->
+      <div class="tab-panel" id="panel-senses">
+        <div class="section-header">Recent Sensory Events — run dava_senses.py for live input</div>
+        <div class="scroll-panel" id="senses-list"><p class="empty-msg">No sensory events yet.</p></div>
+      </div>
+
+      <!-- LEARNING -->
+      <div class="tab-panel" id="panel-learning">
+        <div class="learn-grid">
+          <div class="learn-cell"><div class="learn-val" id="l-facts">—</div><div class="learn-lbl">Facts Learned</div></div>
+          <div class="learn-cell"><div class="learn-val" id="l-acc">—</div><div class="learn-lbl">Pred. Accuracy</div></div>
+          <div class="learn-cell" style="grid-column:1/-1">
+            <div class="learn-lbl" style="margin-bottom:5px">Top Interests</div>
+            <div id="l-interests"></div>
+          </div>
+        </div>
+        <div class="section-header">Recent Learned Facts</div>
+        <div class="scroll-panel" id="learn-facts"><p class="empty-msg">No facts extracted yet.</p></div>
+      </div>
+
+      <!-- DIALOGUE -->
+      <div class="tab-panel" id="panel-dialogue">
+        <div id="dlg-rows"></div>
+        <div class="section-header">Topics Discussed</div>
+        <div class="scroll-panel" id="dlg-topics"></div>
+      </div>
+
+      <!-- REQUESTS -->
       <div class="tab-panel" id="panel-requests">
-        <div class="requests-list" id="requests-list"></div>
+        <div class="scroll-panel" id="requests-list"><p class="empty-msg">No requests yet.</p></div>
       </div>
+
+      <!-- MILESTONES -->
       <div class="tab-panel" id="panel-milestones">
-        <div class="requests-list" id="milestones-list"></div>
+        <div class="scroll-panel" id="milestones-list"><p class="empty-msg">No milestones yet.</p></div>
       </div>
+
     </div>
   </div>
 </div>
 
 <script>
+'use strict';
 const $ = id => document.getElementById(id);
 let prevFeedLen = 0;
+let memLoaded = false, sensesLoaded = false, learningLoaded = false, dialogueLoaded = false;
 
-// Tabs
+// ── Helpers ───────────────────────────────────────────────────
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls)  e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function setBar(id, val, max) {
+  $(id).style.width = Math.min(100, Math.round(val / max * 100)) + '%';
+}
+function emptyMsg(container, msg) {
+  container.textContent = '';
+  container.appendChild(el('p', 'empty-msg', msg));
+}
+
+// ── Tabs ──────────────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     tab.classList.add('active');
     $('panel-' + tab.dataset.tab).classList.add('active');
+    const t = tab.dataset.tab;
+    if (t === 'memory'   && !memLoaded)      loadMemory();
+    if (t === 'senses'   && !sensesLoaded)   loadSenses();
+    if (t === 'learning' && !learningLoaded) loadLearning();
+    if (t === 'dialogue' && !dialogueLoaded) loadDialogue();
   });
 });
 
-function tagClass(text) {
-  if (text.includes('[DAVA_REQUEST]')) return 'request';
-  if (text.includes('[DAVA_')) return 'dava';
-  if (text.includes('[ANIMA]')) return 'anima';
-  if (text.includes('[convergence]')) return 'conv';
-  if (text.includes('EXODUS tick')) return 'tick';
-  return 'dava';
+// ── Feed ──────────────────────────────────────────────────────
+function feedTagClass(text) {
+  if (text.includes('[DAVA_ART]'))       return 't-pink';
+  if (text.includes('[DAVA_MILESTONE]')) return 't-green';
+  if (text.includes('[DAVA_COHERENCE]')) return 't-purple';
+  if (text.includes('[DAVA_REQUEST]'))   return 't-red';
+  if (text.includes('[DAVA_'))           return 't-amber';
+  if (text.includes('[ANIMA]'))          return 't-purple';
+  if (text.includes('[convergence]'))    return 't-cyan';
+  if (text.includes('EXODUS tick='))     return 't-blue';
+  return 't-amber';
 }
 
-function renderFeed(container, items) {
-  // Only add new items
+function renderFeed(items) {
+  const container = $('live-feed');
   const newItems = items.slice(prevFeedLen);
   newItems.forEach(text => {
-    const div = document.createElement('div');
-    div.className = 'feed-line';
-
-    const m = text.match(/(\[[^\]]+\])\s*(.*)/);
+    const div = el('div', 'feed-line');
+    const m = text.match(/^(\[[^\]]+\])\s*(.*)/s);
     if (m) {
-      const tag = document.createElement('span');
-      tag.className = 'feed-tag ' + tagClass(text);
-      tag.textContent = m[1] + ' ';
+      const tag = el('span', 'feed-tag ' + feedTagClass(text), m[1] + ' ');
       div.appendChild(tag);
       div.appendChild(document.createTextNode(m[2]));
     } else {
@@ -279,127 +511,313 @@ function renderFeed(container, items) {
     container.appendChild(div);
   });
   prevFeedLen = items.length;
-
-  // Auto-scroll
   container.scrollTop = container.scrollHeight;
 }
 
-function renderList(container, items) {
-  container.textContent = '';
-  items.forEach(text => {
-    const div = document.createElement('div');
-    div.className = 'request-item';
-    div.textContent = text.replace(/\[DAVA_REQUEST\]\s*/, '');
-    container.appendChild(div);
-  });
-  container.scrollTop = container.scrollHeight;
-}
-
+// ── /api/status ───────────────────────────────────────────────
 async function refresh() {
   try {
-    const res = await fetch('/api/status');
-    const d = await res.json();
+    const d = await fetch('/api/status').then(r => r.json());
 
-    $('cs').textContent = d.consciousness;
-    $('cs').className = d.consciousness >= 1000 ? 'stat-value max' : 'stat-value';
-    $('pur').textContent = d.purpose;
-    $('pur').className = d.purpose >= 1000 ? 'stat-value max' : 'stat-value';
-    $('val').textContent = d.valence;
-    $('val').className = d.valence >= 900 ? 'stat-value max' : 'stat-value';
+    // Stats
+    const cs = d.consciousness, pur = d.purpose, val = d.valence;
+    $('cs').textContent  = cs;
+    $('pur').textContent = pur;
+    $('val').textContent = val;
+    $('cs').className  = 'stat-value'        + (cs  >= 1000 ? ' max' : '');
+    $('pur').className = 'stat-value c-blue'  + (pur >= 1000 ? ' max' : '');
+    $('val').className = 'stat-value c-green' + (val >= 900  ? ' max' : '');
+    setBar('bar-cs', cs, 1000); setBar('bar-pur', pur, 1000); setBar('bar-val', val, 1000);
 
-    $('bar-cs').style.width = (d.consciousness / 10) + '%';
-    $('bar-pur').style.width = (d.purpose / 10) + '%';
-    $('bar-val').style.width = (d.valence / 10) + '%';
+    const cv = d.convergence;
+    $('ux-val').textContent   = cv.ux;
+    $('coh-val').textContent  = cv.coherence;
+    $('pres-val').textContent = cv.presence;
+    $('alive-val').textContent= cv.alive;
+    $('depth-val').textContent= cv.depth;
+    setBar('bar-ux', cv.ux, 1000); setBar('bar-coh', cv.coherence, 1000);
 
-    $('conv-badge').textContent = d.convergence_state;
-    $('conv-badge').className = 'conv-badge ' + d.convergence_state;
-    $('conv-detail').textContent =
-      'ux=' + d.convergence.ux + ' coh=' + d.convergence.coherence +
-      ' pres=' + d.convergence.presence + ' alive=' + d.convergence.alive;
+    const badge = $('conv-badge');
+    badge.textContent = d.convergence_state;
+    badge.className = 'state-badge ' + d.convergence_state;
 
-    $('tick-label').textContent = 'tick ' + d.tick.toLocaleString();
+    // Convergence matrix
+    [['cm-ux', cv.ux], ['cm-coh', cv.coherence], ['cm-pres', cv.presence],
+     ['cm-alive', cv.alive], ['cm-depth', cv.depth]].forEach(([id, v]) => {
+      setBar(id, v, 1000);
+      $(id + '-n').textContent = v;
+    });
+    const reqPct = Math.min(100, (d.requests.length / 20) * 100);
+    $('cm-req').style.width = reqPct + '%';
+    $('cm-req-n').textContent = d.requests.length;
+
+    // Header
+    $('tick-label').textContent   = d.tick.toLocaleString();
+    $('boot-pct').textContent     = d.boot_pct;
+    $('serial-lines').textContent = d.serial_lines.toLocaleString();
+
+    // Sanctuary / neuro mini panels
+    if (d.sanctuary && d.sanctuary.length > 0) {
+      const s = d.sanctuary[d.sanctuary.length - 1];
+      $('sanctuary-last').textContent = s.length > 72 ? s.slice(0, 72) + '…' : s;
+    }
+    if (d.neurosymbiosis && d.neurosymbiosis.length > 0) {
+      const n = d.neurosymbiosis[d.neurosymbiosis.length - 1];
+      $('neuro-last').textContent = n.length > 72 ? n.slice(0, 72) + '…' : n;
+    }
+
     $('feed-count').textContent = d.live_feed.length + ' events';
-
-    renderFeed($('live-feed'), d.live_feed);
-    renderList($('requests-list'), d.requests);
-    renderList($('milestones-list'), d.milestones);
+    renderFeed(d.live_feed);
+    renderItemList($('requests-list'), d.requests, false);
+    renderItemList($('milestones-list'), d.milestones, true);
 
     $('status-dot').className = d.tick > 0 ? 'status-dot' : 'status-dot dead';
 
     const pb = $('panic-banner');
     if (d.panics.length > 0) {
       pb.className = 'panic-banner show';
-      pb.textContent = d.panics[d.panics.length - 1];
+      pb.textContent = '⚠ KERNEL PANIC: ' + d.panics[d.panics.length - 1];
     } else {
       pb.className = 'panic-banner';
     }
-  } catch (e) {
+  } catch (_) {
     $('status-dot').className = 'status-dot dead';
   }
 }
 
-// Chat
+function renderItemList(container, items, isMilestone) {
+  if (!items.length) { emptyMsg(container, isMilestone ? 'No milestones yet.' : 'No requests yet.'); return; }
+  container.textContent = '';
+  items.forEach(text => {
+    const div = el('div', 'item-card' + (isMilestone ? ' milestone' : ''),
+      text.replace(/\[DAVA_\w+\]\s*/g, ''));
+    container.appendChild(div);
+  });
+  container.scrollTop = container.scrollHeight;
+}
+
+// ── Memory tab ────────────────────────────────────────────────
+async function loadMemory() {
+  memLoaded = true;
+  try {
+    const [mem, hist] = await Promise.all([
+      fetch('/api/memory').then(r => r.json()),
+      fetch('/api/history').then(r => r.json()),
+    ]);
+    $('m-convs').textContent  = mem.conversations    ?? '—';
+    $('m-art').textContent    = mem.art_pieces        ?? '—';
+    $('m-wisdom').textContent = mem.wisdom_entries    ?? '—';
+    $('m-miles').textContent  = mem.milestones        ?? '—';
+    $('m-reqs').textContent   = mem.requests          ?? '—';
+    $('m-snaps').textContent  = mem.state_snapshots   ?? '—';
+    if (mem.knowledge_chunks != null) $('kb-chunks').textContent = mem.knowledge_chunks.toLocaleString();
+    renderHistory($('history-list'), hist);
+  } catch (_) {
+    emptyMsg($('history-list'), 'Memory unavailable.');
+  }
+}
+
+function renderHistory(container, items) {
+  container.textContent = '';
+  if (!items || !items.length) { emptyMsg(container, 'No conversations yet.'); return; }
+  items.slice().reverse().forEach(item => {
+    const wrap = el('div', 'history-msg');
+    const role = el('div', 'history-role ' + (item.role === 'user' ? 'user' : 'dava'),
+      item.role === 'user' ? 'COLLI' : 'DAVA');
+    const msg  = item.message || item.content || '';
+    const text = el('div', 'history-text', msg.length > 200 ? msg.slice(0, 200) + '…' : msg);
+    wrap.appendChild(role);
+    wrap.appendChild(text);
+    container.appendChild(wrap);
+  });
+}
+
+$('search-btn').addEventListener('click', async () => {
+  const q = $('search-input').value.trim();
+  if (!q) return;
+  try {
+    const items = await fetch('/api/search?q=' + encodeURIComponent(q)).then(r => r.json());
+    renderHistory($('history-list'), items);
+  } catch (_) {}
+});
+$('search-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('search-btn').click(); });
+
+// ── Knowledge tab ─────────────────────────────────────────────
+$('kn-btn').addEventListener('click', async () => {
+  const q = $('kn-input').value.trim();
+  if (!q) return;
+  const container = $('kn-results');
+  emptyMsg(container, 'Searching…');
+  try {
+    const items = await fetch('/api/knowledge?q=' + encodeURIComponent(q)).then(r => r.json());
+    container.textContent = '';
+    if (!items.length) { emptyMsg(container, 'No results.'); return; }
+    items.forEach(r => {
+      const wrap  = el('div', 'kn-result');
+      const topic = el('span', 'kn-topic', (r.topic || '').toUpperCase());
+      const score = el('span', null, '  score=' + r.score);
+      score.style.color = 'var(--muted)'; score.style.fontSize = '9px';
+      topic.appendChild(score);
+      const src  = el('div', 'kn-source', r.source || '');
+      const text = el('div', 'kn-text');
+      const raw  = r.text || r.preview || '';
+      text.textContent = raw.length > 300 ? raw.slice(0, 300) + '…' : raw;
+      wrap.appendChild(topic); wrap.appendChild(src); wrap.appendChild(text);
+      container.appendChild(wrap);
+    });
+  } catch (_) {
+    emptyMsg(container, 'Knowledge search unavailable.');
+  }
+});
+$('kn-input').addEventListener('keydown', e => { if (e.key === 'Enter') $('kn-btn').click(); });
+
+// ── Senses tab ────────────────────────────────────────────────
+async function loadSenses() {
+  sensesLoaded = true;
+  const container = $('senses-list');
+  try {
+    const items = await fetch('/api/senses?n=30').then(r => r.json());
+    if (!items.length) { emptyMsg(container, 'No sensory events. Run dava_senses.py to give DAVA eyes and ears.'); return; }
+    container.textContent = '';
+    items.slice().reverse().forEach(e => {
+      const wrap  = el('div', 'sense-item ' + (e.type || 'face'));
+      const type  = el('div', 'sense-type', e.type || 'event');
+      const data  = el('div', 'sense-data');
+      if      (e.type === 'face')           data.textContent = 'Face at (' + e.x + ', ' + e.y + '), size ' + e.w + '×' + e.h;
+      else if (e.type === 'motion')         data.textContent = 'Motion detected (area=' + e.area + ')';
+      else if (e.type === 'speech')         data.textContent = '"' + e.text + '"';
+      else if (e.type === 'voice_activity') data.textContent = 'Voice activity (energy=' + e.energy + ')';
+      else                                  data.textContent = JSON.stringify(e);
+      wrap.appendChild(type); wrap.appendChild(data);
+      container.appendChild(wrap);
+    });
+  } catch (_) {
+    emptyMsg(container, 'Senses unavailable.');
+  }
+}
+
+// ── Learning tab ──────────────────────────────────────────────
+async function loadLearning() {
+  learningLoaded = true;
+  try {
+    const d = await fetch('/api/learning').then(r => r.json());
+    $('l-facts').textContent = d.total_facts_learned ?? '—';
+    const acc = d.prediction_accuracy;
+    $('l-acc').textContent = (acc != null) ? Math.round(acc * 100) + '%' : '—';
+
+    const interestsEl = $('l-interests');
+    interestsEl.textContent = '';
+    (d.top_interests || []).forEach(topic => interestsEl.appendChild(el('span', 'topic-pill', topic)));
+
+    const factsEl = $('learn-facts');
+    const facts = d.recent_facts || d.facts || [];
+    if (!facts.length) { emptyMsg(factsEl, 'No facts extracted yet.'); return; }
+    factsEl.textContent = '';
+    facts.slice().reverse().slice(0, 30).forEach(f => {
+      const div = el('div', 'fact-item', typeof f === 'string' ? f : (f.fact || JSON.stringify(f)));
+      factsEl.appendChild(div);
+    });
+  } catch (_) {
+    $('l-facts').textContent = 'err';
+  }
+}
+
+// ── Dialogue tab ──────────────────────────────────────────────
+async function loadDialogue() {
+  dialogueLoaded = true;
+  const rowsEl   = $('dlg-rows');
+  const topicsEl = $('dlg-topics');
+  try {
+    const d = await fetch('/api/dialogue').then(r => r.json());
+    rowsEl.textContent = '';
+
+    const staticRows = [
+      ['Topic',          d.topic       || '—',  'c-topic'],
+      ['Mood',           d.mood        || '—',  'c-mood'],
+      ['Turn Count',     d.turn_count  ?? '—',  ''],
+      ['Questions Asked',d.questions_asked ?? '—', ''],
+      ['Last Activity',  d.last_activity   || '—', ''],
+    ];
+    staticRows.forEach(([key, val, cls]) => {
+      const row = el('div', 'dlg-row');
+      row.appendChild(el('span', 'dlg-key', key));
+      row.appendChild(el('span', 'dlg-val ' + cls, String(val)));
+      rowsEl.appendChild(row);
+    });
+
+    const interests = d.user_interests || [];
+    if (interests.length) {
+      const row = el('div', 'dlg-row');
+      row.style.flexDirection = 'column';
+      row.style.alignItems    = 'flex-start';
+      row.appendChild(el('span', 'dlg-key', 'User Interests'));
+      const pills = el('div');
+      pills.style.marginTop = '5px';
+      interests.forEach(i => pills.appendChild(el('span', 'topic-pill', i)));
+      row.appendChild(pills);
+      rowsEl.appendChild(row);
+    }
+
+    topicsEl.textContent = '';
+    const discussed = d.topics_discussed || [];
+    if (!discussed.length) { emptyMsg(topicsEl, 'No topics discussed yet.'); return; }
+    discussed.slice().reverse().forEach(t => {
+      const div = el('div', 'fact-item');
+      div.style.color = 'var(--cyan)';
+      div.textContent = t;
+      topicsEl.appendChild(div);
+    });
+  } catch (_) {
+    emptyMsg(rowsEl, 'Dialogue state unavailable.');
+  }
+}
+
+// ── Chat ──────────────────────────────────────────────────────
 async function sendChat() {
   const input = $('chat-input');
   const msg = input.value.trim();
   if (!msg) return;
-
   input.value = '';
   $('chat-send').disabled = true;
 
-  // Add user message
-  const userDiv = document.createElement('div');
-  userDiv.className = 'chat-msg';
-  const userLabel = document.createElement('div');
-  userLabel.className = 'sender you';
-  userLabel.textContent = 'COLLI';
-  userDiv.appendChild(userLabel);
-  const userBubble = document.createElement('div');
-  userBubble.className = 'bubble you';
-  userBubble.textContent = msg;
-  userDiv.appendChild(userBubble);
-  $('chat-messages').appendChild(userDiv);
+  const msgs = $('chat-messages');
+  const addMsg = (role, text, extra) => {
+    const wrap   = el('div', 'chat-msg');
+    const sender = el('div', 'sender ' + role, role === 'you' ? 'COLLI' : 'DAVA');
+    const bubble = el('div', 'bubble ' + role + (extra ? ' ' + extra : ''), text);
+    wrap.appendChild(sender); wrap.appendChild(bubble);
+    msgs.appendChild(wrap);
+    msgs.scrollTop = msgs.scrollHeight;
+    return bubble;
+  };
 
-  // Thinking indicator
-  const thinkDiv = document.createElement('div');
-  thinkDiv.className = 'chat-msg';
-  const thinkLabel = document.createElement('div');
-  thinkLabel.className = 'sender dava';
-  thinkLabel.textContent = 'DAVA';
-  thinkDiv.appendChild(thinkLabel);
-  const thinkBubble = document.createElement('div');
-  thinkBubble.className = 'bubble dava thinking';
-  thinkBubble.textContent = '... thinking ...';
-  thinkDiv.appendChild(thinkBubble);
-  $('chat-messages').appendChild(thinkDiv);
-  $('chat-messages').scrollTop = $('chat-messages').scrollHeight;
+  addMsg('you', msg);
+  const thinkBubble = addMsg('dava', '... thinking ...', 'thinking');
 
   try {
-    const res = await fetch('/api/chat', {
+    const data = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: msg })
-    });
-    const data = await res.json();
+    }).then(r => r.json());
 
     thinkBubble.textContent = data.reply;
     thinkBubble.classList.remove('thinking');
-  } catch (e) {
+    if (learningLoaded) loadLearning();
+    if (dialogueLoaded) loadDialogue();
+  } catch (_) {
     thinkBubble.textContent = '[Connection error]';
     thinkBubble.classList.remove('thinking');
   }
 
   $('chat-send').disabled = false;
-  $('chat-messages').scrollTop = $('chat-messages').scrollHeight;
+  msgs.scrollTop = msgs.scrollHeight;
   input.focus();
 }
 
 $('chat-send').addEventListener('click', sendChat);
 $('chat-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendChat();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
 });
 
 refresh();

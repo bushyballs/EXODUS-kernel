@@ -724,7 +724,7 @@ pub fn tick() {
             emit_repeat(code, extended, mods);
         }
     } else {
-        let since_last = state.tick_counter - state.repeat.last_repeat_tick;
+        let since_last = state.tick_counter.saturating_sub(state.repeat.last_repeat_tick);
         if since_last >= REPEAT_RATE {
             state.repeat.last_repeat_tick = state.tick_counter;
             let code = state.repeat.scancode;

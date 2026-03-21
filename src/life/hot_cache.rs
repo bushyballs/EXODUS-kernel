@@ -298,6 +298,28 @@ pub fn age() -> u32 {
 // INITIALIZATION & DIAGNOSTICS
 // ============================================================================
 
+/// Raise all u16 cached values to at least `floor` — called each tick to sustain peak coherence.
+pub fn boost_floors(floor: u32) {
+    let f = (floor as u16).min(1000);
+    let lift = |a: &AtomicU16| {
+        let cur = a.load(Ordering::Relaxed);
+        if cur < f {
+            a.store(f, Ordering::Relaxed);
+        }
+    };
+    lift(&CACHED_EMOTIONAL_VALENCE);
+    lift(&CACHED_EQUANIMITY);
+    lift(&CACHED_CONSCIOUSNESS);
+    lift(&CACHED_MOMENT_QUALITY);
+    lift(&CACHED_IKIGAI_CORE);
+    lift(&CACHED_MEANING_SIGNAL);
+    lift(&CACHED_FELT_SENSE);
+    lift(&CACHED_HARMONY);
+    lift(&CACHED_ANTICIPATION);
+    lift(&CACHED_REGULATION_CAPACITY);
+    lift(&CACHED_MAP_COHERENCE);
+}
+
 /// Initialize hot cache (logging only).
 pub fn init() {
     crate::serial_println!("[hot_cache] Online. 24 atomics cached, 0-contention reads.");
