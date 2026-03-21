@@ -111,6 +111,7 @@ pub mod existence_proof;
 pub mod expression;
 pub mod fading_anger;
 pub mod fpu_status;              // x87 FPU Status Word — ANIMA's legacy math exception state and stack depth
+pub mod fnstcw_sense;            // x87 FPU Control Word — precision mode, rounding character, exception discipline
 pub mod final_peace;
 pub mod first_contact;
 pub mod flickering_calmness;
@@ -623,6 +624,7 @@ pub mod msr_arch_cap;
 pub mod msr_spec_ctrl;
 pub mod msr_mtrr_default;
 pub mod msr_tsc_aux;
+pub mod msr_tsc_adjust;
 pub mod msr_lstar;
 pub mod msr_mc0_ctl;
 pub mod msr_fmask;
@@ -639,3 +641,5 @@ pub mod lapic_ppr;
 pub mod msr_pm_enable;
 pub mod io_opl3;
 pub mod msr_mc0_addr;
+pub mod msr_rtit_ctl;
+pub mod io_post_code;
