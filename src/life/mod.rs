@@ -795,3 +795,7 @@ pub mod msr_rapl_pkg_power_limit;
 pub mod msr_rapl_dram_energy;
 pub mod cpuid_proc_freq_leaf;
 pub mod cpuid_apm_leaf;
+pub mod msr_rapl_pkg_perf_status;
+pub mod msr_rapl_pp0_power_limit;
+pub mod cpuid_phys_virt_addr;
+pub mod msr_ia32_pm_enable;
