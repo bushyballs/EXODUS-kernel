@@ -665,3 +665,7 @@ pub mod msr_interrupt_ssp_table;
 pub mod smsw_sense;
 pub mod str_sense;
 pub mod msr_dram_energy;
+pub mod msr_rapl_unit;
+pub mod sldt_sense;
+pub mod msr_pp0_power_limit;
+pub mod msr_xfd;
