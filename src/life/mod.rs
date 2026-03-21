@@ -586,3 +586,7 @@ pub mod lapic_lvt_pmi;
 pub mod cpuid_ext_features;
 pub mod cpuid_addr_sizes;
 pub mod cpuid_invariant_tsc;
+pub mod cpuid_thermal_power;
+pub mod cpuid_security_ext;
+pub mod cpuid_perf_monitor;
+pub mod cpuid_brand_entropy;
