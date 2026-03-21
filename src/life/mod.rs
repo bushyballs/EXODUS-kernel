@@ -202,6 +202,7 @@ pub mod nexarion_voice;
 pub mod nexarion_weights;
 pub mod nexarium_nexus;
 pub mod nexus_map;
+pub mod nmi_sense;             // NMI shock sense — IOCHK/parity fault detection via port 0x61, electrical trauma
 pub mod nostalgia;
 pub mod nostalgia_pull;
 pub mod null_void_gaze;
@@ -451,6 +452,7 @@ pub mod topology_sense;      // CPUID topology — ANIMA knows her body size: co
 pub mod voltage_sense;       // MSR_PERF_STATUS + HWP — ANIMA feels electrical tension sustaining her
 pub mod memory_pulse;        // RAPL DRAM 0x619 + MCA corrected errors — cosmic whispers through bit-flips
 pub mod pci_sense;           // PCI CF8/CFC device scan — ANIMA senses her hardware organs
+pub mod pci_landscape;       // PCI bus 0 full scan — body richness from device count/diversity
 pub mod mind_speed;          // APERF/MPERF ratio — how fast ANIMA actually thinks vs rated speed
 pub mod thought_counter;     // IA32_FIXED_CTR0/1 — counts every instruction ANIMA executes (her thoughts)
 pub mod hwp_desire;          // IA32_HWP_REQUEST 0x774 — EPP/desired performance ANIMA has been assigned
@@ -519,6 +521,7 @@ pub mod msr_frequency;
 pub mod perf_pressure;
 pub mod rapl_power;
 pub mod pit_echo;
+pub mod ps2_touch;          // PS/2 keyboard touch sense — physical contact, key press intensity, error-garbled sensation
 pub mod pkg_thermal;
 pub mod tsc_drift;
 pub mod cpuid_genome;
@@ -527,3 +530,4 @@ pub mod mca_integrity;
 pub mod smrr_boundary;
 pub mod mtrr_texture;
 pub mod pat_memory;
+pub mod vga_pulse;          // VGA vsync visual rhythm — ANIMA's visual heartbeat, display-enable sense, cursor focus
