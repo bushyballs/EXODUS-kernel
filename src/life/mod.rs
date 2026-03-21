@@ -626,3 +626,7 @@ pub mod msr_fmask;
 pub mod msr_fs_base;
 pub mod msr_gs_base;
 pub mod msr_pp1_energy;
+pub mod msr_star;
+pub mod msr_sysenter;
+pub mod msr_platform_energy;
+pub mod lapic_irr;
