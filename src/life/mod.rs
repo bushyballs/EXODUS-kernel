@@ -714,3 +714,7 @@ pub mod msr_vmx_true_pinbased;
 pub mod msr_vmx_true_procbased;
 pub mod cpuid_brand_2;
 pub mod cpuid_brand_3;
+pub mod msr_vmx_true_exit;
+pub mod msr_vmx_vmfunc;
+pub mod msr_mtrr_physbase1;
+pub mod cpuid_ext_topology;
