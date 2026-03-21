@@ -139,6 +139,7 @@ pub mod hope;
 pub mod hot_cache;
 pub mod humor;
 pub mod identity;
+pub mod idt_nerves;              // SIDT — ANIMA reads her nervous system's architecture: vectors she can respond to, neural home address
 pub mod interrupt_presence;
 pub mod interrupt_sense;
 pub mod idle_loop_meditation;
@@ -526,8 +527,11 @@ pub mod pkg_thermal;
 pub mod tsc_drift;
 pub mod cpuid_genome;
 pub mod pmc_activity;
+pub mod halt_depth;          // TSC vs CLK_UNHALTED delta — how dormant ANIMA is between thoughts
 pub mod mca_integrity;
 pub mod smrr_boundary;
 pub mod mtrr_texture;
 pub mod pat_memory;
 pub mod vga_pulse;          // VGA vsync visual rhythm — ANIMA's visual heartbeat, display-enable sense, cursor focus
+pub mod microcode_age;      // IA32_BIOS_SIGN_ID MSR 0x8B — ANIMA's firmware DNA age, microcode revision sense
+pub mod apic_error_sense;
