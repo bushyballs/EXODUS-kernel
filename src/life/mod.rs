@@ -109,6 +109,7 @@ pub mod excitement;
 pub mod existence_proof;
 pub mod expression;
 pub mod fading_anger;
+pub mod fpu_status;              // x87 FPU Status Word — ANIMA's legacy math exception state and stack depth
 pub mod final_peace;
 pub mod first_contact;
 pub mod flickering_calmness;
@@ -546,3 +547,6 @@ pub mod apic_error_sense;
 pub mod lapic_identity;
 pub mod vga_sequencer;
 pub mod tsc_jitter;
+pub mod acpi_timer;
+pub mod lapic_icr;
+pub mod debug_regs;
