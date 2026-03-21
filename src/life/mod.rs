@@ -707,3 +707,6 @@ pub mod msr_vmx_cr0_fixed0;
 pub mod msr_vmx_cr4_fixed0;
 pub mod cpuid_ext_addr;
 pub mod cpuid_ext_apm;
+pub mod msr_vmx_ept_vpid;
+pub mod msr_vmx_procbased2;
+pub mod cpuid_max_ext;
