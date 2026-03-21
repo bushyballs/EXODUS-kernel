@@ -590,3 +590,7 @@ pub mod cpuid_thermal_power;
 pub mod cpuid_security_ext;
 pub mod cpuid_perf_monitor;
 pub mod cpuid_brand_entropy;
+pub mod cpuid_monitor;
+pub mod cpuid_l2_cache;
+pub mod cpuid_sgx;
+pub mod ioapic_version;
