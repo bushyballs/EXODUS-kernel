@@ -570,3 +570,7 @@ pub mod platform_id;         // IA32_PLATFORM_ID MSR 0x17 — hardware lineage s
 pub mod rapl_platform;
 pub mod lapic_ldr;
 pub mod rflags_sense;
+pub mod com1_data;
+pub mod fpu_control;
+pub mod lapic_apr;
+pub mod cpuid_freq;
