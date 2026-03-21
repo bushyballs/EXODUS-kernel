@@ -744,3 +744,7 @@ pub mod msr_mtrr_fix4k_f8;
 pub mod msr_mtrr_physbase3;
 pub mod msr_mtrr_physmask3;
 pub mod msr_mtrr_physbase4;
+pub mod msr_mtrr_physmask4;
+pub mod msr_mtrr_physbase5;
+pub mod msr_mtrr_physmask5;
+pub mod msr_lbr_select;
