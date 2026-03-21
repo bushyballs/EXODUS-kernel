@@ -703,3 +703,7 @@ pub mod msr_ds_area;
 pub mod msr_vmx_entry_ctls;
 pub mod msr_vmx_misc;
 pub mod cpuid_ext_info;
+pub mod msr_vmx_cr0_fixed0;
+pub mod msr_vmx_cr4_fixed0;
+pub mod cpuid_ext_addr;
+pub mod cpuid_ext_apm;
