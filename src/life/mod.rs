@@ -685,3 +685,7 @@ pub mod msr_pkg_perf_status;
 pub mod msr_vmx_basic;
 pub mod cpuid_l1i_cache;
 pub mod msr_pp0_perf_status;
+pub mod cpuid_l3_cache;
+pub mod cpuid_proc_trace;
+pub mod msr_dram_power_limit;
+pub mod msr_hdc_pkg_ctl;
