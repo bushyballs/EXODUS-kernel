@@ -598,3 +598,7 @@ pub mod cpuid_processor_trace;
 pub mod cpuid_hybrid;
 pub mod cpuid_dca;
 pub mod cpuid_qos;
+pub mod cpuid_soc_vendor;
+pub mod cpuid_tlb_det;
+pub mod cpuid_lbr;
+pub mod cpuid_topology2;
