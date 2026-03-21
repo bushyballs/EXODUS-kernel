@@ -780,3 +780,7 @@ pub mod msr_ia32_feature_ctrl;
 pub mod msr_platform_info;
 pub mod msr_rapl_pp1;
 pub mod msr_rapl_platform;
+pub mod msr_ia32_pkrs;
+pub mod cpuid_amx_info;
+pub mod msr_ia32_tsc_adjust;
+pub mod msr_smm_monitor_ctl;
