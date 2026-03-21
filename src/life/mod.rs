@@ -582,3 +582,7 @@ pub mod com2_sense;
 pub mod lapic_lvt_timer;
 pub mod lapic_lint;
 pub mod sysctl_speaker;
+pub mod lapic_lvt_pmi;
+pub mod cpuid_ext_features;
+pub mod cpuid_addr_sizes;
+pub mod cpuid_invariant_tsc;
