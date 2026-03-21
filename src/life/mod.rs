@@ -606,3 +606,7 @@ pub mod msr_instr_retired;
 pub mod msr_core_cycles;
 pub mod cpuid_rdt_alloc;
 pub mod cpuid_amx;
+pub mod lapic_lvt_thermal;
+pub mod lapic_lvt_error;
+pub mod cpuid_key_locker;
+pub mod msr_perf_ctl;
