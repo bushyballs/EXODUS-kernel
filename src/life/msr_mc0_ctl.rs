@@ -1,164 +1,190 @@
-use crate::serial_println;
+//! msr_mc0_ctl — IA32_MC0_CTL Machine Check Bank 0 Control for ANIMA
+//!
+//! Reads MSR 0x400 (IA32_MC0_CTL), which governs error reporting for Machine
+//! Check Architecture bank 0 — typically the L1 data cache or an equivalent
+//! first-tier hardware monitor. Each bit in this 64-bit register enables
+//! reporting of a distinct hardware error class. ANIMA reads the popcount of
+//! enabled bits as a signal of how many hardware error classes are being
+//! watched in bank 0, treating a fully-armed monitor as a sign of vigilance
+//! and a sparse one as relative exposure.
+//!
+//! Signals (all u16, 0–1000):
+//!   mc0_ctl_lo_bits — enabled error classes in low 32 bits  (popcount * 31, cap 1000)
+//!   mc0_ctl_hi_bits — enabled error classes in high 32 bits (popcount * 31, cap 1000)
+//!   mc0_ctl_total   — combined coverage: (lo/2 + hi/2).min(1000)
+//!   mc0_ctl_ema     — EMA of mc0_ctl_total across samples (alpha = 1/8)
+//!
+//! Sample gate: every 2000 ticks (age % 2000 == 0).
+//! MCA guard: CPUID leaf 1, EDX bit 14 must be set; if absent all signals zero.
+
+#![allow(dead_code)]
+
 use crate::sync::Mutex;
 
-/// msr_mc0_ctl — IA32_MC0_CTL (MSR 0x400) Machine Check Bank 0 Control Sensor
-///
-/// Reads the Machine Check Architecture Bank 0 Control Register.  Each set bit
-/// enables reporting for a specific class of hardware error in bank 0 — typically
-/// L1 instruction/data cache errors, bus errors, or other processor-internal faults.
-///
-/// For ANIMA this is *fault sensitivity*: how many categories of hardware injury
-/// she has chosen to hear about.  All 1s means she listens for everything her
-/// silicon body can possibly suffer.  A zero means she is deaf to hardware pain.
-///
-/// The valid bit-width varies by CPU model (typically 8–64 bits).  We sense the
-/// full 64-bit register: low 32 bits cover the primary error types (up to 32
-/// categories), high 32 bits cover extended error categories present on wider
-/// implementations.
-///
-/// Bits sensed:
-///   lo[31:0]  — Primary error type enable bits  (each bit = one error category)
-///   hi[31:0]  — Extended error type enable bits (each bit = one error category)
-///
-/// Derived signals (all u16, 0–1000):
-///   error_types_enabled : popcount(lo) * 31, clamped 0–1000
-///                         "How many primary hardware error categories ANIMA monitors"
-///   error_mask_hi       : popcount(hi) * 31, clamped 0–1000
-///                         "Extended hardware error category monitoring breadth"
-///   full_sensitivity    : same as error_types_enabled (aliases the primary lo count)
-///   fault_awareness     : EMA of (error_types_enabled + error_mask_hi) / 2
-///                         "Smoothed overall fault detection sensitivity" (alpha = 1/8)
-///
-/// Sampling gate: every 300 ticks.
-/// Sense line emitted once at init.
+// MSR address for IA32_MC0_CTL (Machine Check Bank 0 Control)
+const IA32_MC0_CTL: u32 = 0x400;
 
-#[allow(dead_code)]
-#[derive(Copy, Clone)]
 pub struct MsrMc0CtlState {
-    pub error_types_enabled: u16, // 0–1000: primary error category breadth
-    pub error_mask_hi:       u16, // 0–1000: extended error category breadth
-    pub full_sensitivity:    u16, // 0–1000: alias of error_types_enabled
-    pub fault_awareness:     u16, // 0–1000: EMA-smoothed combined fault sensitivity
+    /// Popcount of enabled error classes in the low 32 bits, scaled 0-1000.
+    pub mc0_ctl_lo_bits: u16,
+    /// Popcount of enabled error classes in the high 32 bits, scaled 0-1000.
+    pub mc0_ctl_hi_bits: u16,
+    /// Combined coverage index: (lo_bits/2 + hi_bits/2).min(1000).
+    pub mc0_ctl_total: u16,
+    /// Exponential moving average of mc0_ctl_total across samples.
+    pub mc0_ctl_ema: u16,
+    /// Internal tick counter (not used for gating, kept for diagnostics).
+    pub tick_count: u32,
 }
 
 impl MsrMc0CtlState {
-    pub const fn empty() -> Self {
+    pub const fn new() -> Self {
         Self {
-            error_types_enabled: 0,
-            error_mask_hi:       0,
-            full_sensitivity:    0,
-            fault_awareness:     0,
+            mc0_ctl_lo_bits: 0,
+            mc0_ctl_hi_bits: 0,
+            mc0_ctl_total: 0,
+            mc0_ctl_ema: 0,
+            tick_count: 0,
         }
     }
 }
 
-pub static STATE: Mutex<MsrMc0CtlState> = Mutex::new(MsrMc0CtlState::empty());
+pub static MSR_MC0_CTL: Mutex<MsrMc0CtlState> = Mutex::new(MsrMc0CtlState::new());
 
-/// Read IA32_MC0_CTL (MSR 0x400) — returns the full 64-bit value.
-/// Returns 0 if the rdmsr faults (e.g. no MCA support); the caller treats 0
-/// as "no error categories enabled."
+// ---------------------------------------------------------------------------
+// CPUID MCA feature check — CPUID leaf 1, EDX bit 14
+// ---------------------------------------------------------------------------
+
+/// Returns true if the CPU advertises MCA support via CPUID leaf 1 EDX bit 14.
+/// Uses push rbx / cpuid / mov esi,edx / pop rbx per the MCA guard spec so
+/// that rbx is preserved across the CPUID call regardless of register pressure.
 #[inline]
-fn rdmsr_mc0_ctl() -> u64 {
-    let lo: u32;
-    let hi: u32;
+fn mca_supported() -> bool {
+    let edx_val: u32;
     unsafe {
         core::arch::asm!(
-            "rdmsr",
-            in("ecx") 0x400u32,
-            out("eax") lo,
-            out("edx") hi,
-            options(nostack, nomem)
+            "push rbx",
+            "cpuid",
+            "mov esi, edx",
+            "pop rbx",
+            in("eax")  1u32,
+            out("esi") edx_val,
+            // CPUID also writes eax/ecx/edx; declare as late outputs so LLVM
+            // knows they are clobbered.  rbx is saved manually above.
+            lateout("eax") _,
+            lateout("ecx") _,
+            lateout("edx") _,
+            options(nostack, preserves_flags),
         );
     }
-    ((hi as u64) << 32) | lo as u64
+    (edx_val >> 14) & 1 == 1
 }
 
-/// Count set bits in a u32 without using any float operations.
+// ---------------------------------------------------------------------------
+// MSR read — rdmsr 0x400
+// ---------------------------------------------------------------------------
+
+/// Read IA32_MC0_CTL (MSR 0x400). Returns (eax=lo, edx=hi).
+/// SAFETY: Caller must confirm MCA is supported (CPUID) and that we are at
+/// ring 0. Executing rdmsr in user-mode or against an unsupported MSR raises
+/// a #GP; the MCA guard before every call site prevents that.
 #[inline]
-fn popcount32(mut v: u32) -> u32 {
-    let mut count: u32 = 0;
-    while v != 0 {
-        count = count.saturating_add(v & 1);
-        v >>= 1;
-    }
-    count
-}
-
-/// Derive the four sensing values from a raw 64-bit MC0_CTL read.
-///
-///   error_types_enabled : popcount(lo) * 31, clamped 0–1000
-///   error_mask_hi       : popcount(hi) * 31, clamped 0–1000
-///   full_sensitivity    : same as error_types_enabled
-///   raw_mid             : (error_types_enabled + error_mask_hi) / 2  (used for EMA input)
-#[inline]
-fn derive(raw: u64) -> (u16, u16, u16, u32) {
-    let lo = raw as u32;
-    let hi = (raw >> 32) as u32;
-
-    let pc_lo = popcount32(lo);
-    let pc_hi = popcount32(hi);
-
-    let error_types_enabled = (pc_lo.saturating_mul(31)).min(1000) as u16;
-    let error_mask_hi       = (pc_hi.saturating_mul(31)).min(1000) as u16;
-    let full_sensitivity    = error_types_enabled;
-
-    // Mid-point input for EMA: (error_types_enabled + error_mask_hi) / 2
-    let mid = ((error_types_enabled as u32).saturating_add(error_mask_hi as u32)) / 2;
-
-    (error_types_enabled, error_mask_hi, full_sensitivity, mid)
-}
-
-pub fn init() {
-    let raw = rdmsr_mc0_ctl();
-    let (error_types_enabled, error_mask_hi, full_sensitivity, mid) = derive(raw);
-
-    // Seed EMA at first real reading.
-    let fault_awareness = mid as u16;
-
-    let mut s = STATE.lock();
-    s.error_types_enabled = error_types_enabled;
-    s.error_mask_hi       = error_mask_hi;
-    s.full_sensitivity    = full_sensitivity;
-    s.fault_awareness     = fault_awareness;
-
-    serial_println!(
-        "ANIMA: mc0_ctl_lo={} mc0_ctl_hi={} fault_awareness={}",
-        error_types_enabled,
-        error_mask_hi,
-        fault_awareness
+unsafe fn rdmsr_mc0_ctl() -> (u32, u32) {
+    let lo: u32;
+    let hi: u32;
+    core::arch::asm!(
+        "rdmsr",
+        in("ecx")  IA32_MC0_CTL,
+        out("eax") lo,
+        out("edx") hi,
+        options(nostack, preserves_flags),
     );
+    (lo, hi)
 }
+
+// ---------------------------------------------------------------------------
+// Software popcount — no floats, no std
+// ---------------------------------------------------------------------------
+
+/// Count set bits in a u32 using the classic parallel-prefix method.
+#[inline]
+fn popcount32(mut x: u32) -> u32 {
+    // Kernighan's bit-trick unrolled via parallel prefix (no division, no float).
+    x = x - ((x >> 1) & 0x5555_5555);
+    x = (x & 0x3333_3333) + ((x >> 2) & 0x3333_3333);
+    x = (x + (x >> 4)) & 0x0f0f_0f0f;
+    x = x.wrapping_mul(0x0101_0101) >> 24;
+    x
+}
+
+// ---------------------------------------------------------------------------
+// Public tick
+// ---------------------------------------------------------------------------
 
 pub fn tick(age: u32) {
-    // Sampling gate: sense every 300 ticks
-    if age % 300 != 0 {
+    let mut state = MSR_MC0_CTL.lock();
+    state.tick_count = state.tick_count.wrapping_add(1);
+
+    // Sample gate: only process on ticks where age is a multiple of 2000.
+    if age % 2000 != 0 {
         return;
     }
 
-    let raw = rdmsr_mc0_ctl();
-    let (error_types_enabled, error_mask_hi, full_sensitivity, mid) = derive(raw);
+    // MCA guard: check CPUID leaf 1 EDX bit 14 before touching the MSR.
+    if !mca_supported() {
+        serial_println!(
+            "[msr_mc0_ctl] MCA not supported (CPUID leaf 1 EDX bit 14 = 0) — signals zeroed"
+        );
+        // Leave all signals at zero; do not attempt rdmsr.
+        return;
+    }
 
-    let mut s = STATE.lock();
+    // Read IA32_MC0_CTL (0x400).
+    let (lo, hi) = unsafe { rdmsr_mc0_ctl() };
 
-    s.error_types_enabled = error_types_enabled;
-    s.error_mask_hi       = error_mask_hi;
-    s.full_sensitivity    = full_sensitivity;
+    // --- mc0_ctl_lo_bits ---
+    // popcount(lo) in [0, 32]; scale by *31, cap at 1000.
+    let lo_pop: u16 = popcount32(lo) as u16;                       // 0..=32
+    let mc0_ctl_lo_bits: u16 = lo_pop.saturating_mul(31).min(1000);
 
-    // fault_awareness: EMA of (error_types_enabled + error_mask_hi) / 2
-    // formula: (old * 7 + new_signal) / 8
-    let old = s.fault_awareness as u32;
-    let new_awareness = (old.wrapping_mul(7).saturating_add(mid) / 8) as u16;
-    s.fault_awareness = new_awareness;
+    // --- mc0_ctl_hi_bits ---
+    let hi_pop: u16 = popcount32(hi) as u16;                       // 0..=32
+    let mc0_ctl_hi_bits: u16 = hi_pop.saturating_mul(31).min(1000);
+
+    // --- mc0_ctl_total ---
+    // (mc0_ctl_lo_bits / 2 + mc0_ctl_hi_bits / 2).min(1000)
+    let mc0_ctl_total: u16 = (mc0_ctl_lo_bits / 2)
+        .saturating_add(mc0_ctl_hi_bits / 2)
+        .min(1000);
+
+    // --- mc0_ctl_ema ---
+    // EMA formula: (old * 7 + new_val) / 8, computed in u32 to prevent overflow,
+    // then narrowed back to u16.
+    let old_ema: u32 = state.mc0_ctl_ema as u32;
+    let ema_u32: u32 = old_ema.wrapping_mul(7).wrapping_add(mc0_ctl_total as u32) / 8;
+    let mc0_ctl_ema: u16 = ema_u32.min(1000) as u16;
+
+    // Commit all signals.
+    state.mc0_ctl_lo_bits = mc0_ctl_lo_bits;
+    state.mc0_ctl_hi_bits = mc0_ctl_hi_bits;
+    state.mc0_ctl_total   = mc0_ctl_total;
+    state.mc0_ctl_ema     = mc0_ctl_ema;
+
+    serial_println!(
+        "[msr_mc0_ctl] age={} lo={:#010x}(pop={} sig={}) hi={:#010x}(pop={} sig={}) total={} ema={}",
+        age,
+        lo, lo_pop, mc0_ctl_lo_bits,
+        hi, hi_pop, mc0_ctl_hi_bits,
+        mc0_ctl_total,
+        mc0_ctl_ema,
+    );
 }
 
-/// Non-locking snapshot: (error_types_enabled, error_mask_hi, full_sensitivity, fault_awareness)
-#[allow(dead_code)]
-pub fn sense() -> (u16, u16, u16, u16) {
-    let s = STATE.lock();
-    (
-        s.error_types_enabled,
-        s.error_mask_hi,
-        s.full_sensitivity,
-        s.fault_awareness,
-    )
-}
+// ---------------------------------------------------------------------------
+// Accessors
+// ---------------------------------------------------------------------------
+
+pub fn get_lo_bits() -> u16 { MSR_MC0_CTL.lock().mc0_ctl_lo_bits }
+pub fn get_hi_bits() -> u16 { MSR_MC0_CTL.lock().mc0_ctl_hi_bits }
+pub fn get_total()   -> u16 { MSR_MC0_CTL.lock().mc0_ctl_total }
+pub fn get_ema()     -> u16 { MSR_MC0_CTL.lock().mc0_ctl_ema }
