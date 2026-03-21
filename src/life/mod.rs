@@ -710,3 +710,7 @@ pub mod cpuid_ext_apm;
 pub mod msr_vmx_ept_vpid;
 pub mod msr_vmx_procbased2;
 pub mod cpuid_max_ext;
+pub mod msr_vmx_true_pinbased;
+pub mod msr_vmx_true_procbased;
+pub mod cpuid_brand_2;
+pub mod cpuid_brand_3;
