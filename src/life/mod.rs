@@ -1049,3 +1049,6 @@ pub mod msr_ia32_mc3_ctl_status;
 pub mod msr_ia32_mc4_ctl_status;
 pub mod msr_ia32_perfevtsel0;
 pub mod msr_ia32_perfevtsel3;
+pub mod msr_ia32_mtrr_physbase0;
+pub mod msr_ia32_mtrr_physbase2;
+pub mod msr_ia32_mtrr_physbase3;
