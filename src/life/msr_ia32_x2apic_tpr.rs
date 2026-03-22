@@ -3,33 +3,60 @@ use core::arch::asm;
 use crate::sync::Mutex;
 use crate::serial_println;
 
-struct State { tpr_level: u16, tpr_active: u16, tpr_class: u16, tpr_ema: u16 }
-static MODULE: Mutex<State> = Mutex::new(State { tpr_level:0, tpr_active:0, tpr_class:0, tpr_ema:0 });
-
-#[inline]
-fn has_x2apic() -> bool {
-    let ecx: u32;
-    unsafe { asm!("push rbx","cpuid","pop rbx", inout("eax") 1u32 => _, lateout("ecx") ecx, lateout("edx") _, options(nostack,nomem)); }
-    (ecx >> 21) & 1 == 1
+struct State {
+    tpr_priority: u16,
+    tpr_subclass: u16,
+    tpr_active: u16,
+    msr_ia32_x2apic_tpr_ema: u16,
 }
+
+static MODULE: Mutex<State> = Mutex::new(State {
+    tpr_priority: 0,
+    tpr_subclass: 0,
+    tpr_active: 0,
+    msr_ia32_x2apic_tpr_ema: 0,
+});
 
 pub fn init() { serial_println!("[msr_ia32_x2apic_tpr] init"); }
+
 pub fn tick(age: u32) {
-    if age % 2000 != 0 { return; }
-    if !has_x2apic() { return; }
+    if age % 1000 != 0 { return; }
+
     let lo: u32;
-    unsafe { asm!("rdmsr", in("ecx") 0x808u32, out("eax") lo, out("edx") _, options(nostack, nomem)); }
-    let raw = lo & 0xFF;
-    let tpr_level = ((raw * 1000) / 255).min(1000) as u16;
-    let tpr_active: u16 = if raw != 0 { 1000 } else { 0 };
-    let tpr_class = ((raw >> 4) * 111).min(1000) as u16;
-    let composite = (tpr_level as u32/3).saturating_add(tpr_active as u32/3).saturating_add(tpr_class as u32/3);
+    let hi: u32;
+    unsafe {
+        asm!(
+            "rdmsr",
+            in("ecx") 0x808u32,
+            out("eax") lo,
+            out("edx") hi,
+            options(nostack, nomem),
+        );
+    }
+
+    // x2APIC task priority register
+    let tpr_priority = (((lo >> 4) & 0xF) * 1000 / 15).min(1000) as u16;
+    let tpr_subclass = ((lo & 0xF) * 1000 / 15).min(1000) as u16;
+    let tpr_active: u16 = if (lo != 0) { 1000 } else { 0 };
+
+    let composite = (tpr_priority as u32 / 3)
+        .saturating_add(tpr_subclass as u32 / 3)
+        .saturating_add(tpr_active as u32 / 3);
+
     let mut s = MODULE.lock();
-    let tpr_ema = ((s.tpr_ema as u32).wrapping_mul(7).saturating_add(composite)/8).min(1000) as u16;
-    s.tpr_level=tpr_level; s.tpr_active=tpr_active; s.tpr_class=tpr_class; s.tpr_ema=tpr_ema;
-    serial_println!("[msr_ia32_x2apic_tpr] age={} level={} active={} class={} ema={}", age, tpr_level, tpr_active, tpr_class, tpr_ema);
+    let msr_ia32_x2apic_tpr_ema = ((s.msr_ia32_x2apic_tpr_ema as u32).wrapping_mul(7)
+        .saturating_add(composite) / 8).min(1000) as u16;
+
+    s.tpr_priority = tpr_priority;
+    s.tpr_subclass = tpr_subclass;
+    s.tpr_active = tpr_active;
+    s.msr_ia32_x2apic_tpr_ema = msr_ia32_x2apic_tpr_ema;
+
+    serial_println!("[msr_ia32_x2apic_tpr] age={} tpr_priority={} tpr_subclass={} tpr_active={} ema={}",
+        age, tpr_priority, tpr_subclass, tpr_active, msr_ia32_x2apic_tpr_ema);
 }
-pub fn get_tpr_level()  -> u16 { MODULE.lock().tpr_level }
-pub fn get_tpr_active() -> u16 { MODULE.lock().tpr_active }
-pub fn get_tpr_class()  -> u16 { MODULE.lock().tpr_class }
-pub fn get_tpr_ema()    -> u16 { MODULE.lock().tpr_ema }
+
+pub fn get_tpr_priority()  -> u16 { MODULE.lock().tpr_priority }
+pub fn get_tpr_subclass()  -> u16 { MODULE.lock().tpr_subclass }
+pub fn get_tpr_active()  -> u16 { MODULE.lock().tpr_active }
+pub fn get_msr_ia32_x2apic_tpr_ema() -> u16 { MODULE.lock().msr_ia32_x2apic_tpr_ema }
