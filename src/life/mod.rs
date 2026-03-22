@@ -1052,3 +1052,7 @@ pub mod msr_ia32_perfevtsel3;
 pub mod msr_ia32_mtrr_physbase0;
 pub mod msr_ia32_mtrr_physbase2;
 pub mod msr_ia32_mtrr_physbase3;
+pub mod msr_ia32_mtrr_fix64k_00000;
+pub mod msr_ia32_mtrr_fix16k_80000;
+pub mod msr_ia32_mtrr_fix16k_a0000;
+pub mod msr_ia32_mtrr_fix4k_c0000;
