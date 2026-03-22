@@ -1006,3 +1006,6 @@ pub mod msr_ia32_pkg_hdc_ctl;
 pub mod msr_ia32_pm_enable2;
 pub mod msr_ia32_sgxlepubkeyhash0;
 pub mod msr_ia32_sgxlepubkeyhash1;
+pub mod msr_ia32_sgxlepubkeyhash2;
+pub mod msr_ia32_sgxlepubkeyhash3;
+pub mod msr_ia32_tsc_ratio;
