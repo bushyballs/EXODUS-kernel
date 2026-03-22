@@ -998,3 +998,5 @@ pub mod msr_ia32_cet_u;
 pub mod msr_ia32_s_cet;
 pub mod msr_ia32_pl0_ssp;
 pub mod msr_ia32_pred_cmd;
+pub mod msr_ia32_arch_capabilities;
+pub mod msr_ia32_xcomp_bv;
