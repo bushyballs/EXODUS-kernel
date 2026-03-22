@@ -981,3 +981,6 @@ pub mod msr_ia32_pmc2;
 pub mod msr_ia32_pmc3;
 pub mod msr_ia32_fixed_ctr0;
 pub mod msr_ia32_fixed_ctr1;
+pub mod msr_ia32_fixed_ctr2;
+pub mod msr_ia32_vmx_procbased_ctls2;
+pub mod msr_ia32_vmx_cr0_fixed0;
