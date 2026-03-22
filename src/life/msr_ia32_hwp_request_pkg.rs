@@ -1,145 +1,46 @@
 #![allow(dead_code)]
-
 use core::arch::asm;
 use crate::sync::Mutex;
+use crate::serial_println;
 
-// ── CPUID guard ──────────────────────────────────────────────────────────────
+struct State { hwp_pkg_min: u16, hwp_pkg_max: u16, hwp_pkg_desired: u16, hwp_pkg_ema: u16 }
+static MODULE: Mutex<State> = Mutex::new(State { hwp_pkg_min:0, hwp_pkg_max:0, hwp_pkg_desired:0, hwp_pkg_ema:0 });
 
+#[inline]
 fn has_hwp_pkg() -> bool {
-    let eax_val: u32;
+    let eax: u32;
     unsafe {
         asm!(
-            "push rbx",
-            "cpuid",
-            "pop rbx",
-            inout("eax") 6u32 => eax_val,
-            lateout("ecx") _,
-            lateout("edx") _,
-            options(nostack, nomem)
+            "push rbx", "cpuid", "pop rbx",
+            inout("eax") 6u32 => eax,
+            lateout("ecx") _, lateout("edx") _,
+            options(nostack, nomem),
         );
     }
-    ((eax_val >> 7) & 1 != 0) && ((eax_val >> 11) & 1 != 0)
+    // bit 11: HWP Package Level Request
+    (eax >> 11) & 1 == 1
 }
 
-// ── MSR read helper ──────────────────────────────────────────────────────────
-
-/// Read a 64-bit MSR. Returns (lo, hi) as u32 pair.
-unsafe fn rdmsr(msr: u32) -> (u32, u32) {
-    let lo: u32;
-    let hi: u32;
-    asm!(
-        "rdmsr",
-        in("ecx") msr,
-        out("eax") lo,
-        out("edx") hi,
-        options(nostack, nomem)
-    );
-    (lo, hi)
-}
-
-// ── State ────────────────────────────────────────────────────────────────────
-
-struct HwpPkgState {
-    pkg_min_perf:  u16,
-    pkg_max_perf:  u16,
-    pkg_desired:   u16,
-    pkg_hwp_ema:   u16,
-    supported:     bool,
-}
-
-impl HwpPkgState {
-    const fn new() -> Self {
-        Self {
-            pkg_min_perf: 0,
-            pkg_max_perf: 0,
-            pkg_desired:  0,
-            pkg_hwp_ema:  0,
-            supported:    false,
-        }
-    }
-}
-
-static STATE: Mutex<HwpPkgState> = Mutex::new(HwpPkgState::new());
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-#[inline]
-fn cap1000(v: u32) -> u16 {
-    if v > 1000 { 1000 } else { v as u16 }
-}
-
-#[inline]
-fn ema(old: u16, new_val: u16) -> u16 {
-    let result: u32 = (old as u32 * 7 + new_val as u32) / 8;
-    cap1000(result)
-}
-
-// ── Public API ───────────────────────────────────────────────────────────────
-
-pub fn init() {
-    let mut state = STATE.lock();
-    state.supported = has_hwp_pkg();
-    crate::serial_println!(
-        "[msr_ia32_hwp_request_pkg] init supported={}",
-        state.supported
-    );
-}
-
+pub fn init() { serial_println!("[msr_ia32_hwp_request_pkg] init"); }
 pub fn tick(age: u32) {
-    // Sample every 2000 ticks
-    if age % 2000 != 0 {
-        return;
-    }
-
-    let mut state = STATE.lock();
-
-    if !state.supported {
-        return;
-    }
-
-    // Read IA32_HWP_REQUEST_PKG (0x772)
-    let (lo, _hi) = unsafe { rdmsr(0x772) };
-
-    // Extract fields from low 32 bits
-    let raw_min     = (lo & 0xFF) as u32;
-    let raw_max     = ((lo >> 8) & 0xFF) as u32;
-    let raw_desired = ((lo >> 16) & 0xFF) as u32;
-
-    // Scale × 4, cap at 1000
-    let pkg_min_perf  = cap1000(raw_min * 4);
-    let pkg_max_perf  = cap1000(raw_max * 4);
-    let pkg_desired   = cap1000(raw_desired * 4);
-    let pkg_hwp_ema   = ema(state.pkg_hwp_ema, pkg_desired);
-
-    state.pkg_min_perf = pkg_min_perf;
-    state.pkg_max_perf = pkg_max_perf;
-    state.pkg_desired  = pkg_desired;
-    state.pkg_hwp_ema  = pkg_hwp_ema;
-
-    crate::serial_println!(
-        "[msr_ia32_hwp_request_pkg] age={} min={} max={} desired={} ema={}",
-        age,
-        pkg_min_perf,
-        pkg_max_perf,
-        pkg_desired,
-        pkg_hwp_ema
-    );
+    if age % 3000 != 0 { return; }
+    if !has_hwp_pkg() { return; }
+    let lo: u32;
+    unsafe { asm!("rdmsr", in("ecx") 0x772u32, out("eax") lo, out("edx") _, options(nostack, nomem)); }
+    // bits[7:0]: Minimum Performance
+    let hwp_pkg_min = ((lo & 0xFF) * 1000 / 255) as u16;
+    // bits[15:8]: Maximum Performance
+    let hwp_pkg_max = (((lo >> 8) & 0xFF) * 1000 / 255) as u16;
+    // bits[23:16]: Desired Performance (0=HW autonomy)
+    let raw_des = (lo >> 16) & 0xFF;
+    let hwp_pkg_desired = if raw_des == 0 { 0u16 } else { ((raw_des * 1000) / 255) as u16 };
+    let composite = (hwp_pkg_min as u32/3).saturating_add(hwp_pkg_max as u32/3).saturating_add(hwp_pkg_desired as u32/3);
+    let mut s = MODULE.lock();
+    let hwp_pkg_ema = ((s.hwp_pkg_ema as u32).wrapping_mul(7).saturating_add(composite)/8).min(1000) as u16;
+    s.hwp_pkg_min=hwp_pkg_min; s.hwp_pkg_max=hwp_pkg_max; s.hwp_pkg_desired=hwp_pkg_desired; s.hwp_pkg_ema=hwp_pkg_ema;
+    serial_println!("[msr_ia32_hwp_request_pkg] age={} min={} max={} des={} ema={}", age, hwp_pkg_min, hwp_pkg_max, hwp_pkg_desired, hwp_pkg_ema);
 }
-
-// ── Getters ──────────────────────────────────────────────────────────────────
-
-pub fn get_pkg_min_perf() -> u16 {
-    STATE.lock().pkg_min_perf
-}
-
-pub fn get_pkg_max_perf() -> u16 {
-    STATE.lock().pkg_max_perf
-}
-
-pub fn get_pkg_desired() -> u16 {
-    STATE.lock().pkg_desired
-}
-
-pub fn get_pkg_hwp_ema() -> u16 {
-    STATE.lock().pkg_hwp_ema
-}
+pub fn get_hwp_pkg_min()     -> u16 { MODULE.lock().hwp_pkg_min }
+pub fn get_hwp_pkg_max()     -> u16 { MODULE.lock().hwp_pkg_max }
+pub fn get_hwp_pkg_desired() -> u16 { MODULE.lock().hwp_pkg_desired }
+pub fn get_hwp_pkg_ema()     -> u16 { MODULE.lock().hwp_pkg_ema }

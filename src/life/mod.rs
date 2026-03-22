@@ -1000,3 +1000,5 @@ pub mod msr_ia32_pl0_ssp;
 pub mod msr_ia32_pred_cmd;
 pub mod msr_ia32_arch_capabilities;
 pub mod msr_ia32_xcomp_bv;
+pub mod msr_ia32_ppin_ctl;
+pub mod msr_ia32_ppin;
