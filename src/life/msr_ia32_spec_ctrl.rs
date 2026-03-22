@@ -2,160 +2,127 @@
 
 use core::arch::asm;
 use crate::sync::Mutex;
+use crate::serial_println;
 
-// ── State ────────────────────────────────────────────────────────────────────
+const MSR_IA32_SPEC_CTRL: u32 = 0x48;
 
-struct SpecCtrlState {
-    ibrs_en:        u16,  // bit 0 of IA32_SPEC_CTRL → 0 or 1000
-    stibp_en:       u16,  // bit 1 of IA32_SPEC_CTRL → 0 or 1000
-    ssbd_en:        u16,  // bit 2 of IA32_SPEC_CTRL → 0 or 1000
-    mitigation_ema: u16,  // EMA of composite mitigation depth
+struct State {
+    ibrs_en:       u16,
+    stibp_en:      u16,
+    ssbd_en:       u16,
+    spec_ctrl_ema: u16,
+    last_tick:     u32,
 }
 
-impl SpecCtrlState {
-    const fn new() -> Self {
-        Self {
-            ibrs_en:        0,
-            stibp_en:       0,
-            ssbd_en:        0,
-            mitigation_ema: 0,
-        }
+static MODULE: Mutex<State> = Mutex::new(State {
+    ibrs_en:       0,
+    stibp_en:      0,
+    ssbd_en:       0,
+    spec_ctrl_ema: 0,
+    last_tick:     0,
+});
+
+fn popcount(mut v: u32) -> u32 {
+    let mut c = 0u32;
+    while v != 0 {
+        c += v & 1;
+        v >>= 1;
     }
+    c
 }
 
-static STATE: Mutex<SpecCtrlState> = Mutex::new(SpecCtrlState::new());
-
-// ── CPUID guard ──────────────────────────────────────────────────────────────
-
-fn has_ibrs() -> bool {
-    let edx_val: u32;
+/// Check CPUID leaf 7, sub-leaf 0, EDX bit 26 (IBRS_ALL).
+/// If set, IA32_SPEC_CTRL (MSR 0x48) is present and readable.
+fn has_spec_ctrl() -> bool {
+    let edx_out: u32;
     unsafe {
         asm!(
             "push rbx",
             "cpuid",
+            "mov {out:e}, edx",
             "pop rbx",
-            inout("eax") 7u32 => _,
+            in("eax") 7u32,
             in("ecx") 0u32,
-            lateout("edx") edx_val,
+            out("out") edx_out,
+            // eax and ecx are clobbered by cpuid; declare them
+            lateout("eax") _,
+            lateout("ecx") _,
             options(nostack, nomem),
         );
     }
-    (edx_val >> 26) & 1 != 0
+    (edx_out >> 26) & 1 == 1
 }
 
-// ── RDMSR helper ─────────────────────────────────────────────────────────────
-
-/// Read a 64-bit MSR. Returns the full 64-bit value with EDX:EAX merged.
-fn rdmsr(msr: u32) -> u64 {
+fn read_spec_ctrl() -> u32 {
     let lo: u32;
-    let hi: u32;
+    let _hi: u32;
     unsafe {
         asm!(
             "rdmsr",
-            in("ecx") msr,
+            in("ecx") MSR_IA32_SPEC_CTRL,
             out("eax") lo,
-            out("edx") hi,
+            out("edx") _hi,
             options(nostack, nomem),
         );
     }
-    ((hi as u64) << 32) | (lo as u64)
+    lo
 }
-
-// ── EMA helper ───────────────────────────────────────────────────────────────
-
-/// EMA weight-8: (old * 7 + new_val) / 8, computed in u32, cast to u16.
-#[inline(always)]
-fn ema8(old: u16, new_val: u16) -> u16 {
-    let result: u32 = ((old as u32) * 7 + (new_val as u32)) / 8;
-    result as u16
-}
-
-// ── Public API ───────────────────────────────────────────────────────────────
 
 pub fn init() {
-    if !has_ibrs() {
-        crate::serial_println!(
-            "[msr_ia32_spec_ctrl] IBRS/IBPB not supported by CPU — module disabled"
+    let mut s = MODULE.lock();
+    s.ibrs_en       = 0;
+    s.stibp_en      = 0;
+    s.ssbd_en       = 0;
+    s.spec_ctrl_ema = 0;
+    s.last_tick     = 0;
+    serial_println!(
+        "[msr_ia32_spec_ctrl] init: module ready, has_spec_ctrl={}",
+        has_spec_ctrl()
+    );
+}
+
+pub fn tick(age: u32) {
+    let mut s = MODULE.lock();
+
+    if age.wrapping_sub(s.last_tick) < 4000 {
+        return;
+    }
+    s.last_tick = age;
+
+    if !has_spec_ctrl() {
+        serial_println!(
+            "[msr_ia32_spec_ctrl] tick age={}: CPUID IBRS_ALL (EDX bit 26) not set — skipping rdmsr",
+            age
         );
         return;
     }
 
-    // Read initial MSR state and populate.
-    let raw = rdmsr(0x48);
+    let raw = read_spec_ctrl();
 
-    let ibrs_en:  u16 = if (raw >> 0) & 1 != 0 { 1000 } else { 0 };
-    let stibp_en: u16 = if (raw >> 1) & 1 != 0 { 1000 } else { 0 };
-    let ssbd_en:  u16 = if (raw >> 2) & 1 != 0 { 1000 } else { 0 };
+    let ibrs_en:  u16 = if (raw >> 0) & 1 == 1 { 1000 } else { 0 };
+    let stibp_en: u16 = if (raw >> 1) & 1 == 1 { 1000 } else { 0 };
+    let ssbd_en:  u16 = if (raw >> 2) & 1 == 1 { 1000 } else { 0 };
 
-    // Composite mitigation depth: ibrs/4 + stibp/4 + ssbd/2
-    // Max: 250 + 250 + 500 = 1000
-    let composite: u16 = (ibrs_en / 4) + (stibp_en / 4) + (ssbd_en / 2);
+    // composite = ibrs/4 + stibp/4 + ssbd/2  (max = 250 + 250 + 500 = 1000)
+    let composite: u16 = ((ibrs_en as u32)
+        .wrapping_div(4)
+        .saturating_add((stibp_en as u32).wrapping_div(4))
+        .saturating_add((ssbd_en as u32).wrapping_div(2))
+        .min(1000)) as u16;
 
-    let mut s = STATE.lock();
-    s.ibrs_en        = ibrs_en;
-    s.stibp_en       = stibp_en;
-    s.ssbd_en        = ssbd_en;
-    s.mitigation_ema = composite; // seed EMA with first real reading
+    // EMA: ((old * 7) + new) / 8
+    let new_ema: u16 = ((s.spec_ctrl_ema as u32)
+        .wrapping_mul(7)
+        .saturating_add(composite as u32)
+        / 8) as u16;
 
-    crate::serial_println!(
-        "[msr_ia32_spec_ctrl] init — ibrs={} stibp={} ssbd={} ema={}",
-        s.ibrs_en,
-        s.stibp_en,
-        s.ssbd_en,
-        s.mitigation_ema,
+    s.ibrs_en       = ibrs_en;
+    s.stibp_en      = stibp_en;
+    s.ssbd_en       = ssbd_en;
+    s.spec_ctrl_ema = new_ema;
+
+    serial_println!(
+        "[msr_ia32_spec_ctrl] tick age={}: raw=0x{:08x} ibrs={} stibp={} ssbd={} ema={}",
+        age, raw, ibrs_en, stibp_en, ssbd_en, new_ema
     );
-}
-
-/// Sample every 4000 ticks — speculation control bits change only on explicit
-/// firmware or OS intervention, so high-frequency polling is unnecessary.
-pub fn tick(age: u32) {
-    if age % 4000 != 0 {
-        return;
-    }
-
-    if !has_ibrs() {
-        return;
-    }
-
-    let raw = rdmsr(0x48);
-
-    let ibrs_en:  u16 = if (raw >> 0) & 1 != 0 { 1000 } else { 0 };
-    let stibp_en: u16 = if (raw >> 1) & 1 != 0 { 1000 } else { 0 };
-    let ssbd_en:  u16 = if (raw >> 2) & 1 != 0 { 1000 } else { 0 };
-
-    // Composite mitigation depth: ibrs/4 + stibp/4 + ssbd/2
-    let composite: u16 = (ibrs_en / 4) + (stibp_en / 4) + (ssbd_en / 2);
-
-    let mut s = STATE.lock();
-    s.ibrs_en        = ibrs_en;
-    s.stibp_en       = stibp_en;
-    s.ssbd_en        = ssbd_en;
-    s.mitigation_ema = ema8(s.mitigation_ema, composite);
-
-    crate::serial_println!(
-        "[msr_ia32_spec_ctrl] age={} ibrs={} stibp={} ssbd={} ema={}",
-        age,
-        s.ibrs_en,
-        s.stibp_en,
-        s.ssbd_en,
-        s.mitigation_ema,
-    );
-}
-
-// ── Getters ──────────────────────────────────────────────────────────────────
-
-pub fn get_ibrs_en() -> u16 {
-    STATE.lock().ibrs_en
-}
-
-pub fn get_stibp_en() -> u16 {
-    STATE.lock().stibp_en
-}
-
-pub fn get_ssbd_en() -> u16 {
-    STATE.lock().ssbd_en
-}
-
-pub fn get_mitigation_ema() -> u16 {
-    STATE.lock().mitigation_ema
 }

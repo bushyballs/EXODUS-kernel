@@ -72,6 +72,16 @@ unsafe fn read_u_cet() -> u32 {
     lo
 }
 
+// ── EMA helper ────────────────────────────────────────────────────────────────
+
+/// Exponential moving average: (old * 7 + signal) / 8
+/// old and signal are both in 0–1000, so old*7 ≤ 7000 which fits in u16 (max 65535).
+/// Uses saturating_add to guard against any unexpected out-of-range inputs.
+#[inline(always)]
+fn ema8(old: u16, signal: u16) -> u16 {
+    old.wrapping_mul(7).saturating_add(signal) / 8
+}
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 pub fn init() {
@@ -93,20 +103,13 @@ pub fn tick(age: u32) {
     // Signal 2: indirect branch tracking — ENDBR_EN (bit 2)
     let ibt_enabled: u16 = if lo & 0x4 != 0 { 1000u16 } else { 0u16 };
 
-    // Signal 3: popcount of bits[4:0] * 200 — breadth of active CET features
+    // Signal 3: popcount of bits[4:0] * 200 — breadth of active CET features (0–1000)
     let cet_depth: u16 = (lo & 0x1F).count_ones() as u16 * 200u16;
 
     let mut state = MSR_U_CET.lock();
 
-    // Signal 4: EMA formula: (old * 7 + signal) / 8
-    let control_flow_guard: u16 =
-        (state.control_flow_guard.saturating_add(state.control_flow_guard.saturating_add(
-            state.control_flow_guard.saturating_add(state.control_flow_guard.saturating_add(
-                state.control_flow_guard.saturating_add(state.control_flow_guard.saturating_add(
-                    state.control_flow_guard
-                ))
-            ))
-        )).saturating_add(shadow_stack_en)) / 8;
+    // Signal 4: EMA of shadow_stack_en: (old * 7 + signal) / 8
+    let control_flow_guard: u16 = ema8(state.control_flow_guard, shadow_stack_en);
 
     state.shadow_stack_en    = shadow_stack_en;
     state.ibt_enabled        = ibt_enabled;

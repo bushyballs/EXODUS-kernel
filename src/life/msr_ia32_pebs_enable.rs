@@ -2,33 +2,28 @@
 
 use core::arch::asm;
 use crate::sync::Mutex;
+use crate::serial_println;
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-struct PebsState {
-    pebs_pmc0_en:      u16,
-    pebs_pmc1_en:      u16,
-    pebs_active_count: u16,
-    pebs_ema:          u16,
+struct State {
+    pebs_pmc_count:   u16, // popcount(bits[3:0]) * 250, capped 1000
+    pebs_fixed_en:    u16, // bit 0 of edx (FixedCtr0 PEBS): 0 or 1000
+    pebs_density:     u16, // EMA of pebs_pmc_count
+    pebs_config_ema:  u16, // EMA of composite (pebs_pmc_count/2 + pebs_fixed_en/2)
 }
 
-impl PebsState {
-    const fn new() -> Self {
-        Self {
-            pebs_pmc0_en:      0,
-            pebs_pmc1_en:      0,
-            pebs_active_count: 0,
-            pebs_ema:          0,
-        }
-    }
-}
-
-static STATE: Mutex<PebsState> = Mutex::new(PebsState::new());
+static MODULE: Mutex<State> = Mutex::new(State {
+    pebs_pmc_count:  0,
+    pebs_fixed_en:   0,
+    pebs_density:    0,
+    pebs_config_ema: 0,
+});
 
 // ---------------------------------------------------------------------------
-// CPUID guard — PDCM (Perfmon and Debug Capability MSR): leaf 1, ECX bit 15
+// CPUID guard — PDCM: leaf 1, ECX bit 15
 // ---------------------------------------------------------------------------
 
 fn has_pdcm() -> bool {
@@ -39,42 +34,40 @@ fn has_pdcm() -> bool {
             "cpuid",
             "pop rbx",
             inout("eax") 1u32 => _,
-            lateout("ecx") ecx_val,
-            lateout("edx") _,
+            out("ecx") ecx_val,
+            out("edx") _,
             options(nostack, nomem)
         );
     }
-    (ecx_val >> 15) & 1 != 0
+    (ecx_val >> 15) & 1 == 1
 }
 
 // ---------------------------------------------------------------------------
-// MSR helpers
+// MSR read — IA32_PEBS_ENABLE (0x3F1)
+// Returns (lo, hi): lo holds bits[3:0] PMC enables, hi bit 0 = FixedCtr0 PEBS
 // ---------------------------------------------------------------------------
 
-/// Read MSR 0x3F1 (MSR_PEBS_ENABLE). Returns the low 32 bits.
-fn read_pebs_enable() -> u32 {
+fn read_msr() -> (u32, u32) {
     let lo: u32;
-    let _hi: u32;
+    let hi: u32;
     unsafe {
         asm!(
             "rdmsr",
             in("ecx") 0x3F1u32,
-            lateout("eax") lo,
-            lateout("edx") _hi,
+            out("eax") lo,
+            out("edx") hi,
             options(nostack, nomem)
         );
     }
-    lo
+    (lo, hi)
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Count set bits in the low 4 bits of v.
-fn popcount4(v: u32) -> u32 {
+fn popcount(mut v: u32) -> u32 {
     let mut c = 0u32;
-    let mut v = v & 0xF;
     while v != 0 {
         c += v & 1;
         v >>= 1;
@@ -82,10 +75,9 @@ fn popcount4(v: u32) -> u32 {
     c
 }
 
-/// EMA: (old * 7 + new_val) / 8, computed in u32, cast to u16.
-fn ema(old: u16, new_val: u16) -> u16 {
-    let result = ((old as u32) * 7 + (new_val as u32)) / 8;
-    result as u16
+// EMA: (old * 7 + new) / 8, saturating, capped 1000
+fn ema(old: u16, new: u16) -> u16 {
+    (((old as u32).wrapping_mul(7).saturating_add(new as u32) / 8) as u16).min(1000)
 }
 
 // ---------------------------------------------------------------------------
@@ -94,49 +86,51 @@ fn ema(old: u16, new_val: u16) -> u16 {
 
 pub fn init() {
     if !has_pdcm() {
-        crate::serial_println!(
-            "[msr_ia32_pebs_enable] PDCM not supported — module disabled"
-        );
+        serial_println!("[msr_ia32_pebs_enable] PDCM not supported — module disabled");
         return;
     }
-    let mut state = STATE.lock();
-    *state = PebsState::new();
-    crate::serial_println!("[msr_ia32_pebs_enable] init ok (PDCM present)");
+    {
+        let mut s = MODULE.lock();
+        s.pebs_pmc_count  = 0;
+        s.pebs_fixed_en   = 0;
+        s.pebs_density    = 0;
+        s.pebs_config_ema = 0;
+    }
+    serial_println!("[msr_ia32_pebs_enable] init ok (PDCM present)");
 }
 
 pub fn tick(age: u32) {
-    // Sample every 2000 ticks.
-    if age % 2000 != 0 {
+    if age % 2500 != 0 {
         return;
     }
-
     if !has_pdcm() {
         return;
     }
 
-    let raw = read_pebs_enable();
+    let (lo, hi) = read_msr();
 
-    // Bit 0 → PMC0 PEBS enable
-    let pmc0: u16 = if (raw >> 0) & 1 != 0 { 1000 } else { 0 };
-    // Bit 1 → PMC1 PEBS enable
-    let pmc1: u16 = if (raw >> 1) & 1 != 0 { 1000 } else { 0 };
+    // bits[3:0] = PEBS enable for PMC0-3
+    let pmc_bits = lo & 0xF;
+    let pc = popcount(pmc_bits);
+    let pebs_pmc_count: u16 = ((pc * 250) as u16).min(1000);
 
-    // popcount of bits[3:0] × 250, capped at 1000
-    let pc = popcount4(raw);
-    let active_raw: u32 = pc * 250;
-    let active: u16 = if active_raw > 1000 { 1000 } else { active_raw as u16 };
+    // bit 32 of the 64-bit MSR = bit 0 of edx (hi word)
+    let pebs_fixed_en: u16 = if hi & 1 != 0 { 1000 } else { 0 };
 
-    let mut state = STATE.lock();
-    let new_ema = ema(state.pebs_ema, active);
+    let mut s = MODULE.lock();
 
-    state.pebs_pmc0_en      = pmc0;
-    state.pebs_pmc1_en      = pmc1;
-    state.pebs_active_count = active;
-    state.pebs_ema          = new_ema;
+    let pebs_density    = ema(s.pebs_density,    pebs_pmc_count);
+    let composite: u16  = pebs_pmc_count.saturating_add(pebs_fixed_en) / 2;
+    let pebs_config_ema = ema(s.pebs_config_ema, composite);
 
-    crate::serial_println!(
-        "[msr_ia32_pebs_enable] age={} pmc0={} pmc1={} active={} ema={}",
-        age, pmc0, pmc1, active, new_ema
+    s.pebs_pmc_count  = pebs_pmc_count;
+    s.pebs_fixed_en   = pebs_fixed_en;
+    s.pebs_density    = pebs_density;
+    s.pebs_config_ema = pebs_config_ema;
+
+    serial_println!(
+        "[msr_ia32_pebs_enable] age={} lo={:#010x} hi={:#010x} pmc_count={} fixed_en={} density={} cfg_ema={}",
+        age, lo, hi, pebs_pmc_count, pebs_fixed_en, pebs_density, pebs_config_ema
     );
 }
 
@@ -144,18 +138,7 @@ pub fn tick(age: u32) {
 // Getters
 // ---------------------------------------------------------------------------
 
-pub fn get_pebs_pmc0_en() -> u16 {
-    STATE.lock().pebs_pmc0_en
-}
-
-pub fn get_pebs_pmc1_en() -> u16 {
-    STATE.lock().pebs_pmc1_en
-}
-
-pub fn get_pebs_active_count() -> u16 {
-    STATE.lock().pebs_active_count
-}
-
-pub fn get_pebs_ema() -> u16 {
-    STATE.lock().pebs_ema
-}
+pub fn get_pebs_pmc_count()   -> u16 { MODULE.lock().pebs_pmc_count }
+pub fn get_pebs_fixed_en()    -> u16 { MODULE.lock().pebs_fixed_en }
+pub fn get_pebs_density()     -> u16 { MODULE.lock().pebs_density }
+pub fn get_pebs_config_ema()  -> u16 { MODULE.lock().pebs_config_ema }

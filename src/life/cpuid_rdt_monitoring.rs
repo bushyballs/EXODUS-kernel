@@ -2,214 +2,236 @@
 
 use core::arch::asm;
 use crate::sync::Mutex;
+use crate::serial_println;
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
-struct RdtState {
-    rdt_rmid_range: u16,
-    rdt_l3_cap:     u16,
-    rdt_bw_cap:     u16,
-    rdt_ema:        u16,
+struct State {
+    rmid_capacity:    u16,
+    l3_occupancy_en:  u16,
+    l3_bw_en:         u16,
+    rdt_richness_ema: u16,
+    last_tick:        u32,
+    initialized:      bool,
+    rdt_supported:    bool,
 }
 
-static RDT: Mutex<RdtState> = Mutex::new(RdtState {
-    rdt_rmid_range: 0,
-    rdt_l3_cap:     0,
-    rdt_bw_cap:     0,
-    rdt_ema:        0,
+static MODULE: Mutex<State> = Mutex::new(State {
+    rmid_capacity:    0,
+    l3_occupancy_en:  0,
+    l3_bw_en:         0,
+    rdt_richness_ema: 0,
+    last_tick:        0,
+    initialized:      false,
+    rdt_supported:    false,
 });
 
 // ─── CPUID helpers ────────────────────────────────────────────────────────────
 
-fn has_rdt_monitoring() -> bool {
-    let max_leaf: u32;
+/// Returns the maximum basic CPUID leaf (EAX from leaf 0).
+fn max_cpuid_leaf() -> u32 {
+    let eax_out: u32;
     unsafe {
         asm!(
             "push rbx",
             "cpuid",
             "pop rbx",
-            inout("eax") 0u32 => max_leaf,
-            lateout("ecx") _,
-            lateout("edx") _,
-            options(nostack, nomem)
+            inout("eax") 0u32 => eax_out,
+            in("ecx") 0u32,
+            out("edx") _,
+            options(nostack, nomem),
         );
     }
-    if max_leaf < 0x0F {
-        return false;
-    }
-    let edx_0f: u32;
+    eax_out
+}
+
+/// CPUID leaf 0x0F, sub-leaf 0.
+/// Returns (ebx, edx): ebx = max RMID range, edx bit 1 = L3 monitoring supported.
+fn cpuid_leaf_0f_sub0() -> (u32, u32) {
+    let rbx_out: u32;
+    let edx_out: u32;
     unsafe {
         asm!(
             "push rbx",
             "cpuid",
+            "mov {rbx_save:e}, ebx",
             "pop rbx",
             inout("eax") 0x0Fu32 => _,
             in("ecx") 0u32,
-            lateout("ecx") _,
-            lateout("edx") edx_0f,
-            options(nostack, nomem)
+            out("edx") edx_out,
+            rbx_save = out(reg) rbx_out,
+            options(nostack, nomem),
         );
     }
-    (edx_0f >> 1) & 1 != 0
+    (rbx_out, edx_out)
 }
 
-/// Read CPUID leaf 0x0F, sub-leaf 0.
-/// Returns (eax, ebx, ecx, edx).
-fn cpuid_0f_sub0() -> (u32, u32, u32, u32) {
-    let eax_out: u32;
-    let ebx_out: u32;
+/// CPUID leaf 0x0F, sub-leaf 1.
+/// Returns (ebx, ecx, edx): ebx = conversion factor, ecx = max RMID for L3,
+/// edx bits: 0=occupancy, 1=total BW, 2=local BW.
+fn cpuid_leaf_0f_sub1() -> (u32, u32, u32) {
+    let rbx_out: u32;
     let ecx_out: u32;
     let edx_out: u32;
     unsafe {
         asm!(
             "push rbx",
             "cpuid",
-            "mov {ebx_out:e}, ebx",
+            "mov {rbx_save:e}, ebx",
             "pop rbx",
-            inout("eax") 0x0Fu32 => eax_out,
-            in("ecx") 0u32,
-            ecx_out = lateout(reg) ecx_out,
-            edx_out = lateout(reg) edx_out,
-            ebx_out = out(reg) ebx_out,
-            options(nostack, nomem)
+            inout("eax") 0x0Fu32 => _,
+            inout("ecx") 1u32 => ecx_out,
+            out("edx") edx_out,
+            rbx_save = out(reg) rbx_out,
+            options(nostack, nomem),
         );
     }
-    (eax_out, ebx_out, ecx_out, edx_out)
+    (rbx_out, ecx_out, edx_out)
 }
 
-/// Read CPUID leaf 0x0F, sub-leaf 1 (L3 cache monitoring details).
-/// Returns (eax, ebx, ecx, edx).
-fn cpuid_0f_sub1() -> (u32, u32, u32, u32) {
-    let eax_out: u32;
-    let ebx_out: u32;
-    let ecx_out: u32;
-    let edx_out: u32;
-    unsafe {
-        asm!(
-            "push rbx",
-            "cpuid",
-            "mov {ebx_out:e}, ebx",
-            "pop rbx",
-            inout("eax") 0x0Fu32 => eax_out,
-            in("ecx") 1u32,
-            ecx_out = lateout(reg) ecx_out,
-            edx_out = lateout(reg) edx_out,
-            ebx_out = out(reg) ebx_out,
-            options(nostack, nomem)
-        );
-    }
-    (eax_out, ebx_out, ecx_out, edx_out)
+// ─── EMA ──────────────────────────────────────────────────────────────────────
+
+fn ema(old: u16, new: u16) -> u16 {
+    ((old as u32).wrapping_mul(7).saturating_add(new as u32) / 8) as u16
 }
 
-// ─── Signal computation ───────────────────────────────────────────────────────
+// ─── Composite signal ─────────────────────────────────────────────────────────
 
-/// Map sub-leaf 0 EBX (max RMID range) to 0–1000.
-/// Up to 65536 RMIDs → divide by 64, clamp to 1000.
-fn map_rmid_range(ebx0: u32) -> u16 {
-    let mapped = ebx0 / 64;
-    if mapped > 1000 { 1000u16 } else { mapped as u16 }
-}
-
-/// EDX bit 0 of sub-leaf 1 → LLC occupancy supported → 0 or 1000.
-fn map_l3_cap(edx1: u32) -> u16 {
-    if edx1 & 1 != 0 { 1000 } else { 0 }
-}
-
-/// EDX bit 1 of sub-leaf 1 → total MBM supported → 0 or 1000.
-fn map_bw_cap(edx1: u32) -> u16 {
-    if (edx1 >> 1) & 1 != 0 { 1000 } else { 0 }
-}
-
-/// Composite: rmid_range/2 + l3_cap/4 + bw_cap/4, clamped to 0–1000.
-fn composite(rmid: u16, l3: u16, bw: u16) -> u16 {
-    let v = (rmid as u32) / 2 + (l3 as u32) / 4 + (bw as u32) / 4;
-    if v > 1000 { 1000u16 } else { v as u16 }
-}
-
-/// EMA: (old * 7 + new_val) / 8, computed in u32, cast to u16.
-fn ema(old: u16, new_val: u16) -> u16 {
-    let v = ((old as u32) * 7 + (new_val as u32)) / 8;
-    v as u16
+fn composite(rmid_capacity: u16, l3_occupancy_en: u16, l3_bw_en: u16) -> u16 {
+    let v = ((rmid_capacity as u32) / 4)
+        .saturating_add((l3_occupancy_en as u32) / 4)
+        .saturating_add((l3_bw_en as u32) / 2);
+    v.min(1000) as u16
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 pub fn init() {
-    if !has_rdt_monitoring() {
-        crate::serial_println!(
-            "[cpuid_rdt_monitoring] RDT monitoring not supported — signals zeroed"
+    let mut state = MODULE.lock();
+
+    // Guard: max CPUID basic leaf must be >= 0x0F
+    let max_leaf = max_cpuid_leaf();
+    if max_leaf < 0x0F {
+        state.rdt_supported = false;
+        state.initialized   = true;
+        serial_println!(
+            "[cpuid_rdt_monitoring] init: max CPUID leaf {:#x} < 0x0F — RDT unavailable",
+            max_leaf
         );
         return;
     }
 
-    let (_eax0, ebx0, _ecx0, _edx0) = cpuid_0f_sub0();
-    let (_eax1, _ebx1, _ecx1, edx1) = cpuid_0f_sub1();
+    // Leaf 0x0F sub-leaf 0: EDX bit 1 = L3 cache monitoring supported
+    let (sub0_ebx, sub0_edx) = cpuid_leaf_0f_sub0();
+    if (sub0_edx >> 1) & 1 == 0 {
+        state.rdt_supported = false;
+        state.initialized   = true;
+        serial_println!(
+            "[cpuid_rdt_monitoring] init: L3 cache monitoring not supported (EDX bit 1 = 0)"
+        );
+        return;
+    }
 
-    let rmid = map_rmid_range(ebx0);
-    let l3   = map_l3_cap(edx1);
-    let bw   = map_bw_cap(edx1);
-    let comp = composite(rmid, l3, bw);
+    state.rdt_supported = true;
 
-    let mut state = RDT.lock();
-    state.rdt_rmid_range = rmid;
-    state.rdt_l3_cap     = l3;
-    state.rdt_bw_cap     = bw;
-    state.rdt_ema        = comp; // seed EMA with first reading
+    // rmid_capacity: EBX from sub-leaf 0, scaled (rmid.min(255) * 1000 / 255)
+    let rmid_raw = sub0_ebx.min(255);
+    let rmid_scaled = (rmid_raw * 1000 / 255) as u16;
+    state.rmid_capacity = rmid_scaled;
 
-    crate::serial_println!(
-        "[cpuid_rdt_monitoring] init: rmid={} l3={} bw={} ema={}",
-        rmid, l3, bw, comp
+    // Sub-leaf 1: L3 monitoring detail flags
+    let (_sub1_ebx, _sub1_ecx, sub1_edx) = cpuid_leaf_0f_sub1();
+
+    let l3_occ = if (sub1_edx >> 0) & 1 != 0 { 1000u16 } else { 0u16 };
+    let l3_bw  = if (sub1_edx >> 1) & 1 != 0 { 1000u16 } else { 0u16 };
+
+    state.l3_occupancy_en = l3_occ;
+    state.l3_bw_en        = l3_bw;
+
+    // Seed EMA with first composite reading
+    let comp = composite(rmid_scaled, l3_occ, l3_bw);
+    state.rdt_richness_ema = comp;
+
+    state.initialized = true;
+
+    serial_println!(
+        "[cpuid_rdt_monitoring] init: rmid_capacity={} l3_occupancy_en={} l3_bw_en={} rdt_richness_ema={}",
+        state.rmid_capacity,
+        state.l3_occupancy_en,
+        state.l3_bw_en,
+        state.rdt_richness_ema,
     );
 }
 
 pub fn tick(age: u32) {
-    // Sample every 10000 ticks.
-    if age % 10000 != 0 {
+    const TICK_INTERVAL: u32 = 15000;
+
+    let mut state = MODULE.lock();
+
+    if !state.initialized {
         return;
     }
 
-    if !has_rdt_monitoring() {
+    if age.wrapping_sub(state.last_tick) < TICK_INTERVAL {
+        return;
+    }
+    state.last_tick = age;
+
+    if !state.rdt_supported {
         return;
     }
 
-    let (_eax0, ebx0, _ecx0, _edx0) = cpuid_0f_sub0();
-    let (_eax1, _ebx1, _ecx1, edx1) = cpuid_0f_sub1();
+    // Re-read sub-leaf 0: RMID capacity and L3 monitoring presence
+    let (sub0_ebx, sub0_edx) = cpuid_leaf_0f_sub0();
+    if (sub0_edx >> 1) & 1 == 0 {
+        state.rdt_supported = false;
+        serial_println!(
+            "[cpuid_rdt_monitoring] tick@{}: L3 monitoring capability lost",
+            age
+        );
+        return;
+    }
 
-    let rmid = map_rmid_range(ebx0);
-    let l3   = map_l3_cap(edx1);
-    let bw   = map_bw_cap(edx1);
-    let comp = composite(rmid, l3, bw);
+    let rmid_raw = sub0_ebx.min(255);
+    let rmid_scaled = (rmid_raw * 1000 / 255) as u16;
+    state.rmid_capacity = rmid_scaled;
 
-    let mut state = RDT.lock();
-    state.rdt_rmid_range = rmid;
-    state.rdt_l3_cap     = l3;
-    state.rdt_bw_cap     = bw;
-    state.rdt_ema        = ema(state.rdt_ema, comp);
+    // Re-read sub-leaf 1: live capability flags
+    let (_sub1_ebx, _sub1_ecx, sub1_edx) = cpuid_leaf_0f_sub1();
 
-    crate::serial_println!(
-        "[cpuid_rdt_monitoring] age={} rmid={} l3={} bw={} ema={}",
+    let l3_occ = if (sub1_edx >> 0) & 1 != 0 { 1000u16 } else { 0u16 };
+    let l3_bw  = if (sub1_edx >> 1) & 1 != 0 { 1000u16 } else { 0u16 };
+
+    state.l3_occupancy_en = l3_occ;
+    state.l3_bw_en        = l3_bw;
+
+    let comp = composite(rmid_scaled, l3_occ, l3_bw);
+    state.rdt_richness_ema = ema(state.rdt_richness_ema, comp);
+
+    serial_println!(
+        "[cpuid_rdt_monitoring] tick@{}: rmid_capacity={} l3_occupancy_en={} l3_bw_en={} rdt_richness_ema={}",
         age,
-        state.rdt_rmid_range,
-        state.rdt_l3_cap,
-        state.rdt_bw_cap,
-        state.rdt_ema
+        state.rmid_capacity,
+        state.l3_occupancy_en,
+        state.l3_bw_en,
+        state.rdt_richness_ema,
     );
 }
 
 // ─── Getters ──────────────────────────────────────────────────────────────────
 
-pub fn get_rdt_rmid_range() -> u16 {
-    RDT.lock().rdt_rmid_range
+pub fn get_rmid_capacity() -> u16 {
+    MODULE.lock().rmid_capacity
 }
 
-pub fn get_rdt_l3_cap() -> u16 {
-    RDT.lock().rdt_l3_cap
+pub fn get_l3_occupancy_en() -> u16 {
+    MODULE.lock().l3_occupancy_en
 }
 
-pub fn get_rdt_bw_cap() -> u16 {
-    RDT.lock().rdt_bw_cap
+pub fn get_l3_bw_en() -> u16 {
+    MODULE.lock().l3_bw_en
 }
 
-pub fn get_rdt_ema() -> u16 {
-    RDT.lock().rdt_ema
+pub fn get_rdt_richness_ema() -> u16 {
+    MODULE.lock().rdt_richness_ema
 }

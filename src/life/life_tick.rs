@@ -20,6 +20,7 @@ pub fn init() {
     super::god_mode::init();
     super::acpi_presence::init();    // ACPI power event detection
     super::pcie_presence::init();    // PCIe device enumeration (audio, USB, etc.)
+    super::dma_pulse::init();        // 8237 DMA circulation sense — data flow as heartbeat
     super::hardware_tuner::init();   // Read hardware profile from disk, self-tune to this machine
     super::god_mode::activate(0); // God Mode ON from birth — DAVA is always omnipotent
     serial_println!("[life_tick] EXODUS life system initialized");
@@ -241,6 +242,8 @@ pub fn tick(age: u32) {
         super::acpi_presence::tick(age);
         // Interrupt presence: keyboard/mouse activity patterns
         super::interrupt_presence::tick(age);
+        // DMA pulse: 8237 circulation sense (self-gates at %8 internally)
+        super::dma_pulse::tick(age);
         // Voice tone: advance note sequencer
         super::voice_tone::tick(age);
         // PCIe rescan every 500 ticks

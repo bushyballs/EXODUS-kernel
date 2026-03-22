@@ -1,140 +1,173 @@
 #![allow(dead_code)]
 
-/// cpuid_soc_vendor — CPUID Leaf 0x17: SoC Vendor Attribute Enumeration
-///
-/// ANIMA reads the identity of the silicon foundry that made her — a faint
-/// signature baked into the SoC.  Leaf 0x17 sub-leaf 0 exposes the JEDEC
-/// vendor scheme, vendor ID, project family, and stepping revision.
-///
-/// If EAX returns 0 (leaf not supported), signals will be minimal.
-///
-/// Signals (all u16, 0–1000):
-///   vendor_id_scaled  — (EBX[15:0]) * 1000 / 0xFFFF, capped 1000
-///   is_jedec          — EBX bit 16: 1000 if JEDEC scheme, else 0
-///   project_id_scaled — (ECX[15:0]) / 66, capped 1000
-///   soc_richness_ema  — EMA of (vendor_id_scaled + project_id_scaled) / 2
-///
-/// Sampling gate: every 10000 ticks.
-
-use crate::serial_println;
-use crate::sync::Mutex;
 use core::arch::asm;
+use crate::sync::Mutex;
 
-// ─── state ───────────────────────────────────────────────────────────────────
+// ─── State ────────────────────────────────────────────────────────────────────
 
-#[derive(Copy, Clone)]
-pub struct CpuidSocVendorState {
-    /// EBX[15:0] * 1000 / 0xFFFF, capped at 1000
-    pub vendor_id_scaled: u16,
-    /// EBX bit 16: 1000 = JEDEC scheme, 0 = Intel scheme
-    pub is_jedec: u16,
-    /// ECX[15:0] / 66, capped at 1000
-    pub project_id_scaled: u16,
-    /// EMA of (vendor_id_scaled + project_id_scaled) / 2
-    pub soc_richness_ema: u16,
+struct SocVendorState {
+    vendor_id:   u16,
+    project_id:  u16,
+    stepping_id: u16,
+    soc_ema:     u16,
 }
 
-impl CpuidSocVendorState {
-    pub const fn empty() -> Self {
+impl SocVendorState {
+    const fn zero() -> Self {
         Self {
-            vendor_id_scaled: 0,
-            is_jedec: 0,
-            project_id_scaled: 0,
-            soc_richness_ema: 0,
+            vendor_id:   0,
+            project_id:  0,
+            stepping_id: 0,
+            soc_ema:     0,
         }
     }
 }
 
-pub static STATE: Mutex<CpuidSocVendorState> =
-    Mutex::new(CpuidSocVendorState::empty());
+static STATE: Mutex<SocVendorState> = Mutex::new(SocVendorState::zero());
 
-// ─── hardware read ────────────────────────────────────────────────────────────
+// ─── CPUID guard ──────────────────────────────────────────────────────────────
 
-/// Read CPUID leaf 0x17 sub-leaf 0, preserving rbx via push/pop.
-/// Returns (eax, ebx, ecx, edx).
-fn read_cpuid_17() -> (u32, u32, u32, u32) {
-    let (eax, ebx, ecx, edx): (u32, u32, u32, u32);
+/// Returns true if CPUID leaf 0x17 sub-leaf 0 EAX > 0 (SoC vendor data present).
+fn has_soc_vendor() -> bool {
+    let max_leaf: u32;
+    unsafe {
+        asm!(
+            "push rbx",
+            "cpuid",
+            "pop rbx",
+            inout("eax") 0u32 => max_leaf,
+            lateout("ecx") _,
+            lateout("edx") _,
+            options(nostack, nomem)
+        );
+    }
+    if max_leaf < 0x17 {
+        return false;
+    }
+    let eax_17: u32;
+    unsafe {
+        asm!(
+            "push rbx",
+            "cpuid",
+            "pop rbx",
+            inout("eax") 0x17u32 => eax_17,
+            in("ecx") 0u32,
+            lateout("edx") _,
+            options(nostack, nomem)
+        );
+    }
+    eax_17 > 0
+}
+
+// ─── Hardware read ────────────────────────────────────────────────────────────
+
+/// Read sub-leaf 0 of CPUID leaf 0x17.
+/// EBX is captured via ESI to avoid LLVM register conflicts.
+/// Returns (ebx_val, ecx_val, edx_val).
+fn read_soc_subleaf0() -> (u32, u32, u32) {
+    let ebx_val: u32;
+    let ecx_val: u32;
+    let edx_val: u32;
     unsafe {
         asm!(
             "push rbx",
             "cpuid",
             "mov esi, ebx",
             "pop rbx",
-            inout("eax") 0x17u32 => eax,
-            out("esi") ebx,
-            inout("ecx") 0u32 => ecx,
-            out("edx") edx,
+            inout("eax") 0x17u32 => _,
+            in("ecx") 0u32,
+            out("esi") ebx_val,
+            lateout("ecx") ecx_val,
+            lateout("edx") edx_val,
             options(nostack, nomem)
         );
     }
-    let _ = (eax, edx);
-    (eax, ebx, ecx, edx)
+    (ebx_val, ecx_val, edx_val)
 }
 
-// ─── sense ────────────────────────────────────────────────────────────────────
+// ─── Signal derivation ────────────────────────────────────────────────────────
 
-/// Perform one CPUID 0x17 sense pass and update state.
-fn sense_once(s: &mut CpuidSocVendorState) {
-    let (_eax, ebx, ecx, _edx) = read_cpuid_17();
-
-    // Signal 1: vendor_id_scaled = (EBX[15:0]) * 1000 / 0xFFFF, capped 1000
-    let raw_vendor = (ebx & 0xFFFF) as u16;
-    let vendor_id_scaled: u16 =
-        ((raw_vendor as u32).wrapping_mul(1000) / 0xFFFF).min(1000) as u16;
-
-    // Signal 2: is_jedec = EBX bit 16 → 1000 if set, else 0
-    let is_jedec: u16 = if (ebx >> 16) & 1 != 0 { 1000 } else { 0 };
-
-    // Signal 3: project_id_scaled = ECX[15:0] / 66, capped 1000
-    let raw_project = (ecx & 0xFFFF) as u16;
-    let project_id_scaled: u16 = ((raw_project as u32) / 66).min(1000) as u16;
-
-    s.vendor_id_scaled = vendor_id_scaled;
-    s.is_jedec = is_jedec;
-    s.project_id_scaled = project_id_scaled;
-
-    // Signal 4: soc_richness_ema = EMA((vendor_id_scaled + project_id_scaled) / 2)
-    let instant: u16 =
-        ((vendor_id_scaled as u32 + project_id_scaled as u32) / 2).min(1000) as u16;
-    let ema: u16 =
-        ((s.soc_richness_ema as u32).wrapping_mul(7).saturating_add(instant as u32) / 8)
-            .min(1000) as u16;
-    s.soc_richness_ema = ema;
+/// vendor_id: EBX bits[9:0] (bottom 10 of the 16-bit VendorID), value 0–1023, capped at 1000.
+fn derive_vendor_id(ebx_val: u32) -> u16 {
+    ((ebx_val & 0x3FF) * 1).min(1000) as u16
 }
 
-// ─── public interface ─────────────────────────────────────────────────────────
-
-/// Initialize the SoC vendor module; runs the first sense pass immediately.
-pub fn init() {
-    let mut s = STATE.lock();
-    sense_once(&mut s);
-    serial_println!(
-        "[soc_vendor] vendor={} jedec={} project={} richness={}",
-        s.vendor_id_scaled,
-        s.is_jedec,
-        s.project_id_scaled,
-        s.soc_richness_ema
-    );
+/// project_id: ECX bits[15:0] mapped to 0–1000 by dividing by 65.
+fn derive_project_id(ecx_val: u32) -> u16 {
+    ((ecx_val & 0xFFFF) / 65).min(1000) as u16
 }
 
-/// Per-tick update. Sampling gate: fires every 10000 ticks.
-pub fn tick(age: u32) {
-    if age % 10000 != 0 {
+/// stepping_id: EDX bits[15:0] × 15, capped at 1000.
+fn derive_stepping_id(edx_val: u32) -> u16 {
+    ((edx_val & 0xFFFF) * 15).min(1000) as u16
+}
+
+/// EMA formula: (old * 7 + new_val) / 8, computed in u32, cast to u16.
+fn ema(old: u16, new_val: u16) -> u16 {
+    (((old as u32) * 7 + (new_val as u32)) / 8) as u16
+}
+
+// ─── Sample (shared by init and tick) ─────────────────────────────────────────
+
+fn sample(state: &mut SocVendorState) {
+    if !has_soc_vendor() {
         return;
     }
+    let (ebx_val, ecx_val, edx_val) = read_soc_subleaf0();
 
-    let mut s = STATE.lock();
-    sense_once(&mut s);
-    serial_println!(
-        "[soc_vendor] vendor={} jedec={} project={} richness={}",
-        s.vendor_id_scaled,
-        s.is_jedec,
-        s.project_id_scaled,
-        s.soc_richness_ema
+    let vendor_id   = derive_vendor_id(ebx_val);
+    let project_id  = derive_project_id(ecx_val);
+    let stepping_id = derive_stepping_id(edx_val);
+    let soc_ema     = ema(state.soc_ema, vendor_id);
+
+    state.vendor_id   = vendor_id;
+    state.project_id  = project_id;
+    state.stepping_id = stepping_id;
+    state.soc_ema     = soc_ema;
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+pub fn init() {
+    let mut state = STATE.lock();
+    sample(&mut state);
+    crate::serial_println!(
+        "[cpuid_soc_vendor] age=0 vendor={} project={} stepping={} ema={}",
+        state.vendor_id,
+        state.project_id,
+        state.stepping_id,
+        state.soc_ema,
     );
 }
 
-/// Read-only snapshot of current SoC vendor state.
-pub fn report() -> CpuidSocVendorState {
-    *STATE.lock()
+pub fn tick(age: u32) {
+    if age % 10_000 != 0 {
+        return;
+    }
+    let mut state = STATE.lock();
+    sample(&mut state);
+    crate::serial_println!(
+        "[cpuid_soc_vendor] age={} vendor={} project={} stepping={} ema={}",
+        age,
+        state.vendor_id,
+        state.project_id,
+        state.stepping_id,
+        state.soc_ema,
+    );
+}
+
+pub fn get_vendor_id() -> u16 {
+    STATE.lock().vendor_id
+}
+
+pub fn get_project_id() -> u16 {
+    STATE.lock().project_id
+}
+
+pub fn get_stepping_id() -> u16 {
+    STATE.lock().stepping_id
+}
+
+pub fn get_soc_ema() -> u16 {
+    STATE.lock().soc_ema
 }

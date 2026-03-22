@@ -1,0 +1,5 @@
+target/
+serial.txt
+*.bc
+*.o
+dashboard/
