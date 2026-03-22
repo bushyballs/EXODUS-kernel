@@ -1093,3 +1093,6 @@ pub mod msr_ia32_ler_from_ip;
 pub mod msr_ia32_ler_to_ip;
 pub mod msr_ia32_pkg_pwr_sku_unit;
 pub mod msr_ia32_pkg_energy_status;
+pub mod msr_ia32_power_ctl2;
+pub mod msr_ia32_perf_global_status;
+pub mod msr_ia32_platform_energy_counter;
