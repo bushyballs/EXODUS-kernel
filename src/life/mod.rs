@@ -992,3 +992,7 @@ pub mod msr_ia32_vmx_vmcs_enum;
 pub mod msr_ia32_rtit_addr0_a;
 pub mod msr_ia32_rtit_addr0_b;
 pub mod msr_ia32_rtit_ctl;
+pub mod msr_ia32_bios_sign_id;
+pub mod msr_ia32_sgx_svn_sinit;
+pub mod msr_ia32_cet_u;
+pub mod msr_ia32_s_cet;
