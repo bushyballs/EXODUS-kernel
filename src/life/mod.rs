@@ -962,3 +962,8 @@ pub mod msr_ia32_cr_pat;
 pub mod msr_ia32_sysenter_cs;
 pub mod msr_ia32_tsc_deadline;
 pub mod msr_ia32_x2apic_version;
+pub mod msr_ia32_x2apic_lvt_lint0;
+pub mod msr_ia32_x2apic_lvt_lint1;
+pub mod msr_ia32_x2apic_timer_init_cnt;
+pub mod msr_ia32_x2apic_timer_cur_cnt;
+pub mod msr_ia32_x2apic_timer_div;
