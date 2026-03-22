@@ -1083,3 +1083,5 @@ pub mod msr_ia32_mtrr_physbase8;
 pub mod msr_ia32_mtrr_physbase9;
 pub mod msr_ia32_mtrr_physbase10;
 pub mod msr_ia32_mtrr_physbase11;
+pub mod msr_ia32_pebs_ld_lat;
+pub mod msr_ia32_pebs_frontend;
