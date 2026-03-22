@@ -812,3 +812,7 @@ pub mod msr_lbr_from0;
 pub mod msr_lbr_from4;
 pub mod cpuid_thermal_power_leaf;
 pub mod msr_ia32_pmc4_sense;
+pub mod cpuid_rdt_monitoring;
+pub mod msr_ia32_pqr_assoc;
+pub mod cpuid_rdt_allocation;
+pub mod msr_ia32_qm_evtsel;
