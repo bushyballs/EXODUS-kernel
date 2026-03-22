@@ -898,3 +898,8 @@ pub mod msr_ia32_star;
 pub mod msr_ia32_lstar;
 pub mod msr_ia32_fmask;
 pub mod msr_ia32_cstar;
+pub mod msr_ia32_pat_sense;
+pub mod msr_ia32_hwp_pkg_req;
+pub mod msr_ia32_hwp_capabilities;
+pub mod cpuid_avx_feat;
+pub mod msr_ia32_pkg_c7_residency;

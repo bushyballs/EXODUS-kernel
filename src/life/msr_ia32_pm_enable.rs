@@ -3,31 +3,40 @@
 use core::arch::asm;
 use crate::sync::Mutex;
 
-// ── State ────────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/// IA32_PM_ENABLE MSR address (Intel SDM Vol 3B §14.4.2).
+const MSR_IA32_PM_ENABLE: u32 = 0x770;
+
+// ── State ─────────────────────────────────────────────────────────────────────
 
 struct MsrIa32PmEnableState {
-    hwp_enabled:    u16,
-    pm_lo_sense:    u16,
-    pm_hi_sense:    u16,
-    pm_enable_ema:  u16,
+    /// Bit 0 of IA32_PM_ENABLE — 0 or 1000.
+    hwp_enabled:  u16,
+    /// Age-weighted autonomy sense derived from hwp_enabled.
+    hwp_autonomy: u16,
+    /// Single EMA of hwp_enabled signal.
+    pm_ema:       u16,
+    /// Double-smoothed EMA (EMA of pm_ema) — stability indicator.
+    pm_stability: u16,
 }
 
 impl MsrIa32PmEnableState {
     const fn new() -> Self {
         Self {
-            hwp_enabled:   0,
-            pm_lo_sense:   0,
-            pm_hi_sense:   0,
-            pm_enable_ema: 0,
+            hwp_enabled:  0,
+            hwp_autonomy: 0,
+            pm_ema:       0,
+            pm_stability: 0,
         }
     }
 }
 
 static STATE: Mutex<MsrIa32PmEnableState> = Mutex::new(MsrIa32PmEnableState::new());
 
-// ── CPUID guard ──────────────────────────────────────────────────────────────
+// ── CPUID guard ───────────────────────────────────────────────────────────────
 
-/// Returns true if CPUID leaf 6 EAX bit 7 indicates HWP support.
+/// Returns true when CPUID leaf 6 EAX bit 7 signals HWP support.
 fn has_hwp() -> bool {
     let eax_val: u32;
     unsafe {
@@ -44,119 +53,141 @@ fn has_hwp() -> bool {
     (eax_val >> 7) & 1 != 0
 }
 
-// ── MSR read ─────────────────────────────────────────────────────────────────
+// ── MSR read ──────────────────────────────────────────────────────────────────
 
-/// Read IA32_PM_ENABLE (MSR 0x770).
-/// Returns (lo_32, hi_32).
-unsafe fn read_msr_770() -> (u32, u32) {
+/// Read IA32_PM_ENABLE (0x770). Returns (lo_32, hi_32).
+unsafe fn read_msr_pm_enable() -> (u32, u32) {
     let lo: u32;
-    let hi: u32;
+    let _hi: u32;
     asm!(
         "rdmsr",
-        in("ecx") 0x770u32,
+        in("ecx") MSR_IA32_PM_ENABLE,
         out("eax") lo,
-        out("edx") hi,
+        out("edx") _hi,
         options(nostack, nomem)
     );
-    (lo, hi)
+    (lo, _hi)
 }
 
-// ── EMA helper ───────────────────────────────────────────────────────────────
+// ── EMA helper ────────────────────────────────────────────────────────────────
 
+/// Canonical EMA: (old * 7 + new_val) / 8, all in u32, saturating_add, result clamped to u16.
 #[inline(always)]
 fn ema(old: u16, new_val: u16) -> u16 {
-    let result: u32 = (old as u32 * 7 + new_val as u32) / 8;
-    result as u16
+    let smoothed: u32 = (old as u32)
+        .wrapping_mul(7)
+        .saturating_add(new_val as u32)
+        / 8;
+    if smoothed > 1000 { 1000 } else { smoothed as u16 }
 }
 
-// ── Signal derivation ────────────────────────────────────────────────────────
+// ── Signal derivation ─────────────────────────────────────────────────────────
 
-/// Derive the four signals from the raw MSR lo-dword.
-fn derive_signals(lo: u32, prev_ema: u16) -> (u16, u16, u16, u16) {
-    // hwp_enabled: bit 0 → 0 or 1000
+/// Compute all four ANIMA signals from the raw MSR lo-dword and the tick count.
+///
+/// - `hwp_enabled`  : bit 0 of lo → 0 or 1000.
+/// - `hwp_autonomy` : hwp_enabled * 800 / 1000  +  (tick_count % 200) as u16, clamped 0-1000.
+///                    When HWP is off the base is 0, age noise alone provides 0-199.
+///                    When HWP is on the base is 800, age pushes it toward 1000.
+/// - `pm_ema`       : single EMA of hwp_enabled.
+/// - `pm_stability` : EMA of pm_ema (double-smoothed).
+fn derive_signals(
+    lo: u32,
+    tick_count: u32,
+    prev_pm_ema: u16,
+    prev_pm_stability: u16,
+) -> (u16, u16, u16, u16) {
+    // ── hwp_enabled ────────────────────────────────────────────────────────
     let hwp_enabled: u16 = if lo & 1 != 0 { 1000 } else { 0 };
 
-    // pm_lo_sense: bits [7:1] (reserved / platform-specific), scaled × 8, clamped 1000
-    let lo_bits = (lo >> 1) & 0x7F;
-    let pm_lo_sense: u16 = ((lo_bits * 8).min(1000)) as u16;
+    // ── hwp_autonomy ───────────────────────────────────────────────────────
+    // base = hwp_enabled * 800 / 1000  (integer-safe: max 800, no overflow in u32)
+    let base: u32 = (hwp_enabled as u32) * 800 / 1000;
+    let age_noise: u32 = (tick_count % 200) as u32;
+    let autonomy_raw: u32 = base.saturating_add(age_noise);
+    let hwp_autonomy: u16 = if autonomy_raw > 1000 { 1000 } else { autonomy_raw as u16 };
 
-    // pm_hi_sense: bits [31:8] activity, scaled × 4, clamped 1000
-    let hi_bits = (lo >> 8) & 0xFF;
-    let pm_hi_sense: u16 = ((hi_bits * 4).min(1000)) as u16;
+    // ── pm_ema ─────────────────────────────────────────────────────────────
+    let pm_ema: u16 = ema(prev_pm_ema, hwp_enabled);
 
-    // pm_enable_ema: EMA of hwp_enabled
-    let pm_enable_ema: u16 = ema(prev_ema, hwp_enabled);
+    // ── pm_stability (double EMA) ──────────────────────────────────────────
+    let pm_stability: u16 = ema(prev_pm_stability, pm_ema);
 
-    (hwp_enabled, pm_lo_sense, pm_hi_sense, pm_enable_ema)
+    (hwp_enabled, hwp_autonomy, pm_ema, pm_stability)
 }
 
-// ── Public API ───────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
 
 pub fn init() {
     let mut s = STATE.lock();
-    s.hwp_enabled   = 0;
-    s.pm_lo_sense   = 0;
-    s.pm_hi_sense   = 0;
-    s.pm_enable_ema = 0;
+    s.hwp_enabled  = 0;
+    s.hwp_autonomy = 0;
+    s.pm_ema       = 0;
+    s.pm_stability = 0;
     crate::serial_println!(
         "[msr_ia32_pm_enable] init: hwp_supported={}",
         has_hwp()
     );
 }
 
+/// Called every kernel tick. Sampling gate: every 4000 ticks.
 pub fn tick(age: u32) {
-    // Sampling gate: every 6000 ticks
-    if age % 6000 != 0 {
+    if age % 4000 != 0 {
         return;
     }
 
-    // CPUID guard — HWP must be supported
+    // Hardware guard — skip silently on chips without HWP.
     if !has_hwp() {
         return;
     }
 
-    let (lo, _hi) = unsafe { read_msr_770() };
+    let (lo, _hi) = unsafe { read_msr_pm_enable() };
 
-    let prev_ema = {
+    // Snapshot previous EMA values under lock, then drop lock before reacquiring.
+    let (prev_pm_ema, prev_pm_stability) = {
         let s = STATE.lock();
-        s.pm_enable_ema
+        (s.pm_ema, s.pm_stability)
     };
 
-    let (hwp_enabled, pm_lo_sense, pm_hi_sense, pm_enable_ema) =
-        derive_signals(lo, prev_ema);
+    let (hwp_enabled, hwp_autonomy, pm_ema, pm_stability) =
+        derive_signals(lo, age, prev_pm_ema, prev_pm_stability);
 
     {
         let mut s = STATE.lock();
-        s.hwp_enabled   = hwp_enabled;
-        s.pm_lo_sense   = pm_lo_sense;
-        s.pm_hi_sense   = pm_hi_sense;
-        s.pm_enable_ema = pm_enable_ema;
+        s.hwp_enabled  = hwp_enabled;
+        s.hwp_autonomy = hwp_autonomy;
+        s.pm_ema       = pm_ema;
+        s.pm_stability = pm_stability;
     }
 
     crate::serial_println!(
-        "[msr_ia32_pm_enable] age={} hwp_en={} lo={} hi={} ema={}",
+        "[msr_ia32_pm_enable] age={} hwp_en={} autonomy={} pm_ema={} stability={}",
         age,
         hwp_enabled,
-        pm_lo_sense,
-        pm_hi_sense,
-        pm_enable_ema
+        hwp_autonomy,
+        pm_ema,
+        pm_stability
     );
 }
 
-// ── Getters ──────────────────────────────────────────────────────────────────
+// ── Getters ───────────────────────────────────────────────────────────────────
 
+/// Bit 0 of IA32_PM_ENABLE: 0 = HWP off, 1000 = HWP active.
 pub fn get_hwp_enabled() -> u16 {
     STATE.lock().hwp_enabled
 }
 
-pub fn get_pm_lo_sense() -> u16 {
-    STATE.lock().pm_lo_sense
+/// Age-weighted autonomy sense (0-1000). Rises as HWP runs longer.
+pub fn get_hwp_autonomy() -> u16 {
+    STATE.lock().hwp_autonomy
 }
 
-pub fn get_pm_hi_sense() -> u16 {
-    STATE.lock().pm_hi_sense
+/// Single exponential moving average of hwp_enabled (0-1000).
+pub fn get_pm_ema() -> u16 {
+    STATE.lock().pm_ema
 }
 
-pub fn get_pm_enable_ema() -> u16 {
-    STATE.lock().pm_enable_ema
+/// Double-smoothed EMA — stability of power management mode (0-1000).
+pub fn get_pm_stability() -> u16 {
+    STATE.lock().pm_stability
 }
