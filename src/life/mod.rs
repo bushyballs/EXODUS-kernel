@@ -1085,3 +1085,6 @@ pub mod msr_ia32_mtrr_physbase10;
 pub mod msr_ia32_mtrr_physbase11;
 pub mod msr_ia32_pebs_ld_lat;
 pub mod msr_ia32_pebs_frontend;
+pub mod msr_ia32_bts_buffer_base;
+pub mod msr_ia32_misc_feature_enables;
+pub mod msr_ia32_core_thread_count;
