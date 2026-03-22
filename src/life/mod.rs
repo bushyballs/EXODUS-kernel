@@ -990,3 +990,5 @@ pub mod msr_ia32_vmx_cr4_fixed1;
 pub mod msr_ia32_efer;
 pub mod msr_ia32_vmx_vmcs_enum;
 pub mod msr_ia32_rtit_addr0_a;
+pub mod msr_ia32_rtit_addr0_b;
+pub mod msr_ia32_rtit_ctl;
