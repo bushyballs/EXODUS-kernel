@@ -1091,3 +1091,5 @@ pub mod msr_ia32_core_thread_count;
 pub mod msr_ia32_misc_feature_control;
 pub mod msr_ia32_ler_from_ip;
 pub mod msr_ia32_ler_to_ip;
+pub mod msr_ia32_pkg_pwr_sku_unit;
+pub mod msr_ia32_pkg_energy_status;
