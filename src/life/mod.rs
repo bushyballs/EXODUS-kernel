@@ -923,3 +923,7 @@ pub mod msr_ia32_core_capabilities;
 pub mod msr_ia32_hle_compat;
 pub mod msr_ia32_umwait_control;
 pub mod msr_ia32_pred_cmd_sense;
+pub mod msr_ia32_mtrr_physbase1;
+pub mod msr_ia32_mtrr_fix64k;
+pub mod msr_ia32_mc2_status;
+pub mod msr_ia32_mc3_misc;
