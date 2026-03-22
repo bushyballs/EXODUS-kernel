@@ -1,174 +1,37 @@
 #![allow(dead_code)]
-
+use core::arch::asm;
 use crate::sync::Mutex;
 use crate::serial_println;
 
-const MSR_IA32_MCG_CAP: u32 = 0x179;
-const MSR_IA32_MCG_CTL: u32 = 0x17B;
-const TICK_GATE: u32 = 10000;
+fn popcount(mut v: u32) -> u32 { let mut c=0u32; while v!=0 { c+=v&1; v>>=1; } c }
 
-pub struct State {
-    pub mcg_ctl_banks_enabled: u16,
-    pub mcg_ctl_lo_raw: u16,
-    pub mcg_ctl_all_enabled: u16,
-    pub mcg_ctl_ema: u16,
-}
+struct State { mcg_ctl_banks: u16, mcg_bank_coverage: u16, mcg_ctl_active: u16, mcg_ctl_ema: u16 }
+static MODULE: Mutex<State> = Mutex::new(State { mcg_ctl_banks:0, mcg_bank_coverage:0, mcg_ctl_active:0, mcg_ctl_ema:0 });
 
-pub static MODULE: Mutex<State> = Mutex::new(State {
-    mcg_ctl_banks_enabled: 0,
-    mcg_ctl_lo_raw: 0,
-    mcg_ctl_all_enabled: 0,
-    mcg_ctl_ema: 0,
-});
-
-fn popcount(mut v: u32) -> u32 {
-    v = v - ((v >> 1) & 0x5555_5555);
-    v = (v & 0x3333_3333) + ((v >> 2) & 0x3333_3333);
-    v = (v + (v >> 4)) & 0x0f0f_0f0f;
-    v = v.wrapping_mul(0x0101_0101) >> 24;
-    v
-}
-
-fn has_mca() -> bool {
+#[inline]
+fn has_mce() -> bool {
     let edx: u32;
-    unsafe {
-        core::arch::asm!(
-            "push rbx", "cpuid", "pop rbx",
-            inout("eax") 1u32 => _,
-            out("ecx") _,
-            out("edx") edx,
-            options(nostack, nomem),
-        );
-    }
-    (edx >> 14) & 1 == 1
+    unsafe { asm!("push rbx","cpuid","pop rbx", inout("eax") 1u32 => _, lateout("ecx") _, lateout("edx") edx, options(nostack,nomem)); }
+    (edx >> 7) & 1 == 1
 }
 
-fn has_mcg_ctl_p() -> bool {
-    let lo: u32;
-    let _hi: u32;
-    unsafe {
-        core::arch::asm!(
-            "rdmsr",
-            in("ecx") MSR_IA32_MCG_CAP,
-            out("eax") lo,
-            out("edx") _hi,
-            options(nostack, nomem),
-        );
-    }
-    (lo >> 8) & 1 == 1
-}
-
-fn read_mcg_ctl() -> (u32, u32) {
-    let lo: u32;
-    let hi: u32;
-    unsafe {
-        core::arch::asm!(
-            "rdmsr",
-            in("ecx") MSR_IA32_MCG_CTL,
-            out("eax") lo,
-            out("edx") hi,
-            options(nostack, nomem),
-        );
-    }
-    (lo, hi)
-}
-
-fn read_mcg_cap_bank_count() -> u32 {
-    let lo: u32;
-    let _hi: u32;
-    unsafe {
-        core::arch::asm!(
-            "rdmsr",
-            in("ecx") MSR_IA32_MCG_CAP,
-            out("eax") lo,
-            out("edx") _hi,
-            options(nostack, nomem),
-        );
-    }
-    // bits 7:0 of MCG_CAP = MCG_Count (number of error-reporting banks)
-    lo & 0xFF
-}
-
-fn ema(old: u16, new: u16) -> u16 {
-    ((old as u32).wrapping_mul(7).saturating_add(new as u32) / 8) as u16
-}
-
-pub fn init() {
-    serial_println!("[msr_ia32_mcg_ctl] init");
-    let mut s = MODULE.lock();
-    s.mcg_ctl_banks_enabled = 0;
-    s.mcg_ctl_lo_raw = 0;
-    s.mcg_ctl_all_enabled = 0;
-    s.mcg_ctl_ema = 0;
-}
-
+pub fn init() { serial_println!("[msr_ia32_mcg_ctl] init"); }
 pub fn tick(age: u32) {
-    if age % TICK_GATE != 0 {
-        return;
-    }
-
-    if !has_mca() || !has_mcg_ctl_p() {
-        return;
-    }
-
-    let (lo, _hi) = read_mcg_ctl();
-    let bank_count = read_mcg_cap_bank_count();
-
-    let enabled_count = popcount(lo);
-
-    // mcg_ctl_banks_enabled: count of enabled bank bits, scaled to 0-1000
-    let banks_enabled: u16 = ((enabled_count * 1000 / 32) as u16).min(1000);
-
-    // mcg_ctl_lo_raw: popcount of lo bits, same scaling
-    let lo_raw: u16 = ((popcount(lo) * 1000 / 32) as u16).min(1000);
-
-    // mcg_ctl_all_enabled: 1000 if all implemented banks are enabled, else 0
-    let all_enabled: u16 = if bank_count == 0 {
-        0
-    } else {
-        // build a mask for the implemented banks (up to 32)
-        let clamped = bank_count.min(32);
-        let mask: u32 = if clamped >= 32 {
-            0xFFFF_FFFF
-        } else {
-            (1u32 << clamped) - 1
-        };
-        if (lo & mask) == mask {
-            1000
-        } else {
-            0
-        }
-    };
-
+    if age % 5000 != 0 { return; }
+    if !has_mce() { return; }
+    let lo: u32; let hi: u32;
+    unsafe { asm!("rdmsr", in("ecx") 0x17Bu32, out("eax") lo, out("edx") hi, options(nostack, nomem)); }
+    let mcg_ctl_active: u16 = if lo != 0 || hi != 0 { 1000 } else { 0 };
+    let bits = popcount(lo);
+    let mcg_ctl_banks = ((bits * 31).min(1000)) as u16;
+    let mcg_bank_coverage = mcg_ctl_banks;
+    let composite = (mcg_ctl_active as u32/3).saturating_add(mcg_ctl_banks as u32/3).saturating_add(mcg_bank_coverage as u32/3);
     let mut s = MODULE.lock();
-    let prev_ema = s.mcg_ctl_ema;
-    s.mcg_ctl_banks_enabled = banks_enabled;
-    s.mcg_ctl_lo_raw = lo_raw;
-    s.mcg_ctl_all_enabled = all_enabled;
-    s.mcg_ctl_ema = ema(prev_ema, banks_enabled);
-
-    serial_println!(
-        "[msr_ia32_mcg_ctl] tick={} banks_enabled={} lo_raw={} all_enabled={} ema={}",
-        age,
-        s.mcg_ctl_banks_enabled,
-        s.mcg_ctl_lo_raw,
-        s.mcg_ctl_all_enabled,
-        s.mcg_ctl_ema,
-    );
+    let mcg_ctl_ema = ((s.mcg_ctl_ema as u32).wrapping_mul(7).saturating_add(composite)/8).min(1000) as u16;
+    s.mcg_ctl_banks=mcg_ctl_banks; s.mcg_bank_coverage=mcg_bank_coverage; s.mcg_ctl_active=mcg_ctl_active; s.mcg_ctl_ema=mcg_ctl_ema;
+    serial_println!("[msr_ia32_mcg_ctl] age={} banks={} cov={} active={} ema={}", age, mcg_ctl_banks, mcg_bank_coverage, mcg_ctl_active, mcg_ctl_ema);
 }
-
-pub fn get_mcg_ctl_banks_enabled() -> u16 {
-    MODULE.lock().mcg_ctl_banks_enabled
-}
-
-pub fn get_mcg_ctl_lo_raw() -> u16 {
-    MODULE.lock().mcg_ctl_lo_raw
-}
-
-pub fn get_mcg_ctl_all_enabled() -> u16 {
-    MODULE.lock().mcg_ctl_all_enabled
-}
-
-pub fn get_mcg_ctl_ema() -> u16 {
-    MODULE.lock().mcg_ctl_ema
-}
+pub fn get_mcg_ctl_banks()    -> u16 { MODULE.lock().mcg_ctl_banks }
+pub fn get_mcg_bank_coverage()-> u16 { MODULE.lock().mcg_bank_coverage }
+pub fn get_mcg_ctl_active()   -> u16 { MODULE.lock().mcg_ctl_active }
+pub fn get_mcg_ctl_ema()      -> u16 { MODULE.lock().mcg_ctl_ema }

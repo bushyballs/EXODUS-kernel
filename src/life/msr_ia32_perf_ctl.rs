@@ -1,110 +1,27 @@
 #![allow(dead_code)]
-
+use core::arch::asm;
 use crate::sync::Mutex;
+use crate::serial_println;
 
-// ── State ─────────────────────────────────────────────────────────────────────
+struct State { target_fid: u16, ida_engage: u16, perf_ctl_active: u16, perf_ctl_ema: u16 }
+static MODULE: Mutex<State> = Mutex::new(State { target_fid:0, ida_engage:0, perf_ctl_active:0, perf_ctl_ema:0 });
 
-struct PerfCtlState {
-    perf_ctl_ratio:     u16,
-    perf_ctl_turbo_dis: u16,
-    perf_ctl_lo_sense:  u16,
-    perf_ctl_ema:       u16,
-}
-
-static STATE: Mutex<PerfCtlState> = Mutex::new(PerfCtlState {
-    perf_ctl_ratio:     0,
-    perf_ctl_turbo_dis: 0,
-    perf_ctl_lo_sense:  0,
-    perf_ctl_ema:       0,
-});
-
-// ── MSR read ──────────────────────────────────────────────────────────────────
-
-/// Read IA32_PERF_CTL (MSR 0x199).
-/// Returns (lo_32, hi_32).
-#[inline]
-unsafe fn rdmsr_199() -> (u32, u32) {
-    let lo: u32;
-    let hi: u32;
-    core::arch::asm!(
-        "rdmsr",
-        in("ecx") 0x199u32,
-        out("eax") lo,
-        out("edx") hi,
-        options(nostack, nomem),
-    );
-    (lo, hi)
-}
-
-// ── Public API ────────────────────────────────────────────────────────────────
-
-pub fn init() {
-    let mut s = STATE.lock();
-    s.perf_ctl_ratio     = 0;
-    s.perf_ctl_turbo_dis = 0;
-    s.perf_ctl_lo_sense  = 0;
-    s.perf_ctl_ema       = 0;
-    crate::serial_println!("[msr_ia32_perf_ctl] init");
-}
-
+pub fn init() { serial_println!("[msr_ia32_perf_ctl] init"); }
 pub fn tick(age: u32) {
-    if age % 800 != 0 {
-        return;
-    }
-
-    // SAFETY: IA32_PERF_CTL is always present on x86_64 systems targeted by
-    // this kernel; no CPUID guard required per module spec.
-    let (lo, _hi) = unsafe { rdmsr_199() };
-
-    // bits [15:8] → P-state ratio; scale ×10, cap at 1000
-    let ratio_raw: u32 = (lo >> 8) & 0xFF;
-    let ratio: u16 = (ratio_raw * 10).min(1000) as u16;
-
-    // bit 0 → IDA/Turbo disable flag
-    let turbo_dis: u16 = if (lo & 0x1) != 0 { 1000 } else { 0 };
-
-    // bits [7:0] → low-byte state; scale ×4, cap at 1000
-    let lo_byte: u32 = lo & 0xFF;
-    let lo_sense: u16 = (lo_byte * 4).min(1000) as u16;
-
-    // EMA of ratio: (old * 7 + new) / 8  — computed in u32 to avoid overflow
-    let ema: u16 = {
-        let old = STATE.lock().perf_ctl_ema as u32;
-        ((old * 7 + ratio as u32) / 8) as u16
-    };
-
-    {
-        let mut s = STATE.lock();
-        s.perf_ctl_ratio     = ratio;
-        s.perf_ctl_turbo_dis = turbo_dis;
-        s.perf_ctl_lo_sense  = lo_sense;
-        s.perf_ctl_ema       = ema;
-    }
-
-    crate::serial_println!(
-        "[msr_ia32_perf_ctl] age={} ratio={} turbo_dis={} lo_sense={} ema={}",
-        age,
-        ratio,
-        turbo_dis,
-        lo_sense,
-        ema,
-    );
+    if age % 1000 != 0 { return; }
+    let lo: u32;
+    unsafe { asm!("rdmsr", in("ecx") 0x199u32, out("eax") lo, out("edx") _, options(nostack, nomem)); }
+    let fid_raw = lo & 0xFF;
+    let target_fid = ((fid_raw * 1000) / 255).min(1000) as u16;
+    let perf_ctl_active: u16 = if fid_raw != 0 { 1000 } else { 0 };
+    let ida_engage: u16 = if (lo >> 32) & 1 != 0 { 1000 } else { 0 };
+    let composite = (target_fid as u32/3).saturating_add(perf_ctl_active as u32/3).saturating_add(ida_engage as u32/3);
+    let mut s = MODULE.lock();
+    let perf_ctl_ema = ((s.perf_ctl_ema as u32).wrapping_mul(7).saturating_add(composite)/8).min(1000) as u16;
+    s.target_fid=target_fid; s.ida_engage=ida_engage; s.perf_ctl_active=perf_ctl_active; s.perf_ctl_ema=perf_ctl_ema;
+    serial_println!("[msr_ia32_perf_ctl] age={} fid={} ida={} active={} ema={}", age, target_fid, ida_engage, perf_ctl_active, perf_ctl_ema);
 }
-
-// ── Getters ───────────────────────────────────────────────────────────────────
-
-pub fn get_perf_ctl_ratio() -> u16 {
-    STATE.lock().perf_ctl_ratio
-}
-
-pub fn get_perf_ctl_turbo_dis() -> u16 {
-    STATE.lock().perf_ctl_turbo_dis
-}
-
-pub fn get_perf_ctl_lo_sense() -> u16 {
-    STATE.lock().perf_ctl_lo_sense
-}
-
-pub fn get_perf_ctl_ema() -> u16 {
-    STATE.lock().perf_ctl_ema
-}
+pub fn get_target_fid()       -> u16 { MODULE.lock().target_fid }
+pub fn get_ida_engage()       -> u16 { MODULE.lock().ida_engage }
+pub fn get_perf_ctl_active()  -> u16 { MODULE.lock().perf_ctl_active }
+pub fn get_perf_ctl_ema()     -> u16 { MODULE.lock().perf_ctl_ema }

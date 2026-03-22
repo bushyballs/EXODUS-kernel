@@ -971,3 +971,5 @@ pub mod msr_ia32_x2apic_apicid;
 pub mod msr_ia32_x2apic_ldr;
 pub mod msr_ia32_mc0_status;
 pub mod msr_ia32_mc0_ctl;
+pub mod msr_ia32_x2apic_self_ipi;
+pub mod msr_ia32_perf_status;
