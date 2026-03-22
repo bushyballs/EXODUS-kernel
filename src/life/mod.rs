@@ -1067,3 +1067,7 @@ pub mod msr_ia32_mtrr_physbase4;
 pub mod msr_ia32_mtrr_physbase5;
 pub mod msr_ia32_mtrr_physbase6;
 pub mod msr_ia32_mtrr_physbase7;
+pub mod msr_ia32_perfevtsel4;
+pub mod msr_ia32_perfevtsel5;
+pub mod msr_ia32_perfevtsel6;
+pub mod msr_ia32_perfevtsel7;
