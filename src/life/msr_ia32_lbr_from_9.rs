@@ -1,0 +1,28 @@
+#![allow(dead_code)]
+use core::arch::asm;
+use crate::sync::Mutex;
+use crate::serial_println;
+
+struct State { lbr_from9_addr: u16, lbr_from9_mispred: u16, lbr_from9_tsx: u16, lbr_from9_ema: u16 }
+static MODULE: Mutex<State> = Mutex::new(State { lbr_from9_addr:0, lbr_from9_mispred:0, lbr_from9_tsx:0, lbr_from9_ema:0 });
+pub fn init() { serial_println!("[msr_ia32_lbr_from_9] init"); }
+pub fn tick(age: u32) {
+    if age % 3000 != 0 { return; }
+    let edx: u32;
+    unsafe { asm!("push rbx", "mov eax, 7", "xor ecx, ecx", "cpuid", "pop rbx", lateout("eax") _, lateout("ecx") _, lateout("edx") edx, options(nostack, nomem)); }
+    if (edx >> 19) & 1 == 0 { return; }
+    let lo: u32; let hi: u32;
+    unsafe { asm!("rdmsr", in("ecx") 0x689u32, out("eax") lo, out("edx") hi, options(nostack, nomem)); }
+    let lbr_from9_mispred: u16 = if (hi >> 30) & 1 != 0 { 1000 } else { 0 };
+    let lbr_from9_tsx: u16 = if (hi >> 31) & 1 != 0 { 1000 } else { 0 };
+    let lbr_from9_addr = ((lo & 0xFFFF) * 1000 / 65535) as u16;
+    let composite = (lbr_from9_addr as u32/3).saturating_add(lbr_from9_mispred as u32/3).saturating_add(lbr_from9_tsx as u32/3);
+    let mut s = MODULE.lock();
+    let lbr_from9_ema = ((s.lbr_from9_ema as u32).wrapping_mul(7).saturating_add(composite)/8).min(1000) as u16;
+    s.lbr_from9_addr=lbr_from9_addr; s.lbr_from9_mispred=lbr_from9_mispred; s.lbr_from9_tsx=lbr_from9_tsx; s.lbr_from9_ema=lbr_from9_ema;
+    serial_println!("[msr_ia32_lbr_from_9] age={} addr={} mispred={} tsx={} ema={}", age, lbr_from9_addr, lbr_from9_mispred, lbr_from9_tsx, lbr_from9_ema);
+}
+pub fn get_lbr_from9_addr()    -> u16 { MODULE.lock().lbr_from9_addr }
+pub fn get_lbr_from9_mispred() -> u16 { MODULE.lock().lbr_from9_mispred }
+pub fn get_lbr_from9_tsx()     -> u16 { MODULE.lock().lbr_from9_tsx }
+pub fn get_lbr_from9_ema()     -> u16 { MODULE.lock().lbr_from9_ema }
