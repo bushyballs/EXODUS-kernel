@@ -1116,3 +1116,7 @@ pub mod bid_win_euphoria;
 pub mod co_relationship;
 pub mod pricing_accuracy;
 pub mod war_room;
+pub mod prospect_intel;
+pub mod compliance_risk;
+pub mod escalation_learner;
+pub mod subcontractor_sense;
