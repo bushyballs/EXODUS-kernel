@@ -37,3 +37,9 @@ pub fn open_gate() {
 pub fn close_gate() {
     STATE.lock().gate_open = false;
 }
+pub fn set_threshold(t: u16) {
+    STATE.lock().threshold = t.min(1000);
+}
+pub fn get_threshold() -> u16 {
+    STATE.lock().threshold
+}
