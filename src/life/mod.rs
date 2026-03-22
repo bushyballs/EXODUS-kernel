@@ -1013,3 +1013,7 @@ pub mod msr_ia32_lbr_from_1;
 pub mod msr_ia32_lbr_to_1;
 pub mod msr_ia32_lbr_from_2;
 pub mod msr_ia32_lbr_to_2;
+pub mod msr_ia32_lbr_from_3;
+pub mod msr_ia32_lbr_to_3;
+pub mod msr_ia32_lbr_from_4;
+pub mod msr_ia32_lbr_to_4;
