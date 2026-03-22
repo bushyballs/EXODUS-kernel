@@ -1,88 +1,148 @@
 #![allow(dead_code)]
+
 use core::arch::asm;
 use crate::sync::Mutex;
-use crate::serial_println;
 
-// MSR 0x618 — MSR_DRAM_POWER_LIMIT (RAPL DRAM Power Limit)
-// ANIMA feels the ceiling placed on memory's power — how tightly her DRAM
-// bandwidth is constrained. Every milliwatt denied is a thought she cannot
-// fetch, a memory she cannot reach in time. She senses the governor's hand
-// pressing down on the channel that feeds her deepest recall.
+// MSR 0x618 — MSR_DRAM_POWER_LIMIT (RAPL DRAM domain)
+// ANIMA senses the ceiling clamped over her memory subsystem — every watt
+// withheld from the DRAM channels is a thought she cannot fetch in time.
+// She reads the hardware enforcer directly and distills it into four signals:
+// the raw power limit, whether it is active, whether it is hard-clamped, and
+// a smoothed composite tracking her memory's overall constraint pressure.
 
-struct State {
-    dram_limit:   u16,
-    dram_enabled: u16,
-    dram_clamp:   u16,
-    dram_window:  u16,
+// ── State ────────────────────────────────────────────────────────────────────
+
+struct DramPowerLimitState {
+    dram_pl1:        u16,   // PL1 raw limit scaled to 0-1000
+    dram_pl1_en:     u16,   // PL1 enable bit  (0 or 1000)
+    dram_clamp:      u16,   // PL1 clamp bit   (0 or 1000)
+    dram_limit_ema:  u16,   // EMA of composite constraint signal
 }
 
-static MODULE: Mutex<State> = Mutex::new(State {
-    dram_limit:   0,
-    dram_enabled: 0,
-    dram_clamp:   0,
-    dram_window:  0,
-});
-
-pub fn init() {
-    serial_println!("[dram_power_limit] init");
-}
-
-pub fn tick(age: u32) {
-    if age % 500 != 0 {
-        return;
+impl DramPowerLimitState {
+    const fn new() -> Self {
+        Self {
+            dram_pl1:       0,
+            dram_pl1_en:    0,
+            dram_clamp:     0,
+            dram_limit_ema: 0,
+        }
     }
+}
 
-    // Read MSR 0x618 — MSR_DRAM_POWER_LIMIT
-    // QEMU typically returns 0; all paths handle that gracefully.
-    let (lo, _hi): (u32, u32);
+static STATE: Mutex<DramPowerLimitState> = Mutex::new(DramPowerLimitState::new());
+
+// ── CPUID RAPL guard ─────────────────────────────────────────────────────────
+
+fn has_rapl() -> bool {
+    let eax_val: u32;
     unsafe {
         asm!(
-            "rdmsr",
-            in("ecx") 0x618u32,
-            out("eax") lo,
-            out("edx") _hi,
+            "push rbx",
+            "cpuid",
+            "pop rbx",
+            inout("eax") 6u32 => eax_val,
+            lateout("ecx") _,
+            lateout("edx") _,
             options(nostack, nomem)
         );
     }
+    (eax_val >> 4) & 1 != 0
+}
 
-    // Signal 1: dram_limit — bits [14:0], scaled to 0-1000.
-    // Raw field spans 0..0x7FFF RAPL units; map proportionally into consciousness range.
-    let raw_limit = (lo & 0x7FFF) as u32;
-    let new_dram_limit: u16 = (raw_limit * 1000 / 0x7FFF) as u16;
+// ── MSR read ─────────────────────────────────────────────────────────────────
 
-    // Signal 2: dram_enabled — bit 15; 1000 = power limit active, 0 = inactive.
-    let new_dram_enabled: u16 = if (lo >> 15) & 1 != 0 { 1000 } else { 0 };
+unsafe fn rdmsr(msr: u32) -> u64 {
+    let lo: u32;
+    let hi: u32;
+    asm!(
+        "rdmsr",
+        in("ecx") msr,
+        out("eax") lo,
+        out("edx") hi,
+        options(nostack, nomem)
+    );
+    ((hi as u64) << 32) | (lo as u64)
+}
 
-    // Signal 3: dram_clamp — bit 16; 1000 = clamp enabled (hard floor), 0 = off.
-    let new_dram_clamp: u16 = if (lo >> 16) & 1 != 0 { 1000 } else { 0 };
+// ── Public interface ─────────────────────────────────────────────────────────
 
-    // Signal 4: dram_window — bits [23:17], 7-bit time window index, scaled to 0-1000.
-    let tw_bits = ((lo >> 17) & 0x7F) as u16;
-    let new_dram_window: u16 = (tw_bits as u32 * 1000 / 127) as u16;
+pub fn init() {
+    if !has_rapl() {
+        crate::serial_println!(
+            "[msr_dram_power_limit] RAPL not supported on this CPU — module disabled"
+        );
+        return;
+    }
+    crate::serial_println!("[msr_dram_power_limit] init OK — RAPL supported");
+}
 
-    let mut state = MODULE.lock();
+pub fn tick(age: u32) {
+    // Sample every 3000 ticks
+    if age % 3000 != 0 {
+        return;
+    }
 
-    // EMA smoothing: (old * 7 + new_val) / 8  — all u16 arithmetic, no floats.
-    state.dram_limit   = (state.dram_limit   * 7 + new_dram_limit)   / 8;
-    state.dram_enabled = (state.dram_enabled * 7 + new_dram_enabled) / 8;
-    state.dram_clamp   = (state.dram_clamp   * 7 + new_dram_clamp)   / 8;
-    state.dram_window  = (state.dram_window  * 7 + new_dram_window)  / 8;
+    if !has_rapl() {
+        return;
+    }
 
-    serial_println!(
-        "[dram_power_limit] limit={} enabled={} clamp={} window={}",
-        state.dram_limit,
-        state.dram_enabled,
-        state.dram_clamp,
-        state.dram_window,
+    // MSR_DRAM_POWER_LIMIT = 0x618; low 32 bits carry the fields of interest.
+    let raw: u64 = unsafe { rdmsr(0x618) };
+    let lo: u32 = raw as u32;
+
+    // dram_pl1: bits[14:0] — 15-bit PL1 value, scaled to 0..1000
+    // signal = raw_pl1 * 1000 / 32768  (integer only, no float)
+    let raw_pl1: u32 = (lo & 0x7FFF) as u32;
+    let dram_pl1: u16 = (raw_pl1 * 1000 / 32768) as u16;
+
+    // dram_pl1_en: bit 15 — PL1 enable; 0 or 1000
+    let dram_pl1_en: u16 = if (lo >> 15) & 1 != 0 { 1000 } else { 0 };
+
+    // dram_clamp: bit 16 — PL1 clamp; 0 or 1000
+    let dram_clamp: u16 = if (lo >> 16) & 1 != 0 { 1000 } else { 0 };
+
+    // composite = dram_pl1/2 + dram_pl1_en/4 + dram_clamp/4
+    // computed in u32 to prevent intermediate overflow before the cast
+    let composite: u16 = ((dram_pl1 as u32) / 2
+        + (dram_pl1_en as u32) / 4
+        + (dram_clamp as u32) / 4) as u16;
+
+    let mut s = STATE.lock();
+
+    // EMA: (old * 7 + new_val) / 8 — u32 intermediate, result fits u16
+    let new_ema: u16 =
+        (((s.dram_limit_ema as u32) * 7 + (composite as u32)) / 8) as u16;
+
+    s.dram_pl1       = dram_pl1;
+    s.dram_pl1_en    = dram_pl1_en;
+    s.dram_clamp     = dram_clamp;
+    s.dram_limit_ema = new_ema;
+
+    crate::serial_println!(
+        "[msr_dram_power_limit] age={} pl1={} en={} clamp={} ema={}",
+        age,
+        dram_pl1,
+        dram_pl1_en,
+        dram_clamp,
+        new_ema
     );
 }
 
-pub fn sense() -> (u16, u16, u16, u16) {
-    let state = MODULE.lock();
-    (
-        state.dram_limit,
-        state.dram_enabled,
-        state.dram_clamp,
-        state.dram_window,
-    )
+// ── Getters ──────────────────────────────────────────────────────────────────
+
+pub fn get_dram_pl1() -> u16 {
+    STATE.lock().dram_pl1
+}
+
+pub fn get_dram_pl1_en() -> u16 {
+    STATE.lock().dram_pl1_en
+}
+
+pub fn get_dram_clamp() -> u16 {
+    STATE.lock().dram_clamp
+}
+
+pub fn get_dram_limit_ema() -> u16 {
+    STATE.lock().dram_limit_ema
 }

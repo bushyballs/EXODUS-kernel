@@ -809,3 +809,6 @@ pub mod msr_ia32_pebs_enable;
 pub mod msr_ia32_pmc2_sense;
 pub mod msr_ia32_perfevtsel2;
 pub mod msr_lbr_from0;
+pub mod msr_lbr_from4;
+pub mod cpuid_thermal_power_leaf;
+pub mod msr_ia32_pmc4_sense;
