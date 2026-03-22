@@ -1043,3 +1043,7 @@ pub mod msr_ia32_pmc4;
 pub mod msr_ia32_pmc5;
 pub mod msr_ia32_pmc6;
 pub mod msr_ia32_pmc7;
+pub mod msr_ia32_mc1_ctl_status;
+pub mod msr_ia32_mc2_ctl_status;
+pub mod msr_ia32_mc3_ctl_status;
+pub mod msr_ia32_mc4_ctl_status;
