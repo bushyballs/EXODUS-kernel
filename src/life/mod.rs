@@ -933,3 +933,8 @@ pub mod msr_ia32_lbr_depth_sense;
 pub mod msr_ia32_lbr_ctl_sense;
 pub mod msr_ia32_gs_base_sense;
 pub mod msr_ia32_debug_interface;
+pub mod msr_ia32_xfd;
+pub mod msr_ia32_xfd_err;
+pub mod cpuid_hypervisor_feat;
+pub mod msr_ia32_turbo_activation_ratio;
+pub mod msr_ia32_platform_info2;
