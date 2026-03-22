@@ -1009,3 +1009,7 @@ pub mod msr_ia32_sgxlepubkeyhash1;
 pub mod msr_ia32_sgxlepubkeyhash2;
 pub mod msr_ia32_sgxlepubkeyhash3;
 pub mod msr_ia32_tsc_ratio;
+pub mod msr_ia32_lbr_from_1;
+pub mod msr_ia32_lbr_to_1;
+pub mod msr_ia32_lbr_from_2;
+pub mod msr_ia32_lbr_to_2;
