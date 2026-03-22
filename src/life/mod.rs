@@ -802,3 +802,7 @@ pub mod msr_ia32_pm_enable;
 pub mod msr_ia32_hwp_interrupt;
 pub mod msr_ia32_hwp_request_pkg;
 pub mod msr_ia32_cet_pl0_ssp;
+pub mod msr_ia32_hwp_status;
+pub mod msr_ia32_rtit_output_base;
+pub mod msr_ia32_rtit_cr3_match;
+pub mod msr_ia32_pebs_enable;
