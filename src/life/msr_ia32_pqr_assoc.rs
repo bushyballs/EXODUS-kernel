@@ -3,25 +3,39 @@
 use core::arch::asm;
 use crate::sync::Mutex;
 
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+/// IA32_PQR_ASSOC MSR address — associates this logical processor with an RDT
+/// Class of Service (COS) and Resource Monitoring ID (RMID).
+const IA32_PQR_ASSOC: u32 = 0xC8F;
+
+/// Tick gate: sample every 2000 ticks.
+const TICK_GATE: u32 = 2000;
+
 // ── State ─────────────────────────────────────────────────────────────────────
 
 struct PqrAssocState {
-    rmid_sense:   u16,
-    clos_sense:   u16,
-    rmid_nonzero: u16,
-    pqr_ema:      u16,
+    /// RMID extracted from bits[31:16], scaled 0–1000.
+    pqr_rmid: u16,
+    /// COS ID extracted from bits[15:0], scaled 0–1000.
+    pqr_cos_id: u16,
+    /// 1000 if lo != 0 (non-default QoS class active), else 0.
+    pqr_isolated: u16,
+    /// EMA of (rmid/4 + cos_id/4 + isolated/2).
+    pqr_ema: u16,
 }
 
 static STATE: Mutex<PqrAssocState> = Mutex::new(PqrAssocState {
-    rmid_sense:   0,
-    clos_sense:   0,
-    rmid_nonzero: 0,
+    pqr_rmid:     0,
+    pqr_cos_id:   0,
+    pqr_isolated: 0,
     pqr_ema:      0,
 });
 
-// ── CPUID guard ───────────────────────────────────────────────────────────────
+// ── CPUID guard — CPUID leaf 0x10 EAX bit 1 (L3 CAT supported) ───────────────
 
-fn has_rdt() -> bool {
+fn has_l3_cat() -> bool {
+    // Step 1: confirm max basic CPUID leaf >= 0x10.
     let max_leaf: u32;
     unsafe {
         asm!(
@@ -34,120 +48,140 @@ fn has_rdt() -> bool {
             options(nostack, nomem)
         );
     }
-    if max_leaf < 0x0F {
+    if max_leaf < 0x10 {
         return false;
     }
-    let edx_0f: u32;
+
+    // Step 2: CPUID leaf 0x10, sub-leaf 0 — EAX bit 1 == L3 CAT supported.
+    let eax_10: u32;
     unsafe {
         asm!(
             "push rbx",
             "cpuid",
             "pop rbx",
-            inout("eax") 0x0Fu32 => _,
+            inout("eax") 0x10u32 => eax_10,
             in("ecx") 0u32,
-            lateout("ecx") _,
-            lateout("edx") edx_0f,
+            lateout("edx") _,
             options(nostack, nomem)
         );
     }
-    (edx_0f >> 1) & 1 != 0
+    (eax_10 >> 1) & 1 != 0
 }
 
-// ── RDMSR ─────────────────────────────────────────────────────────────────────
+// ── RDMSR helper ──────────────────────────────────────────────────────────────
 
-/// Returns (lo, hi) for the requested MSR address.
 #[inline]
-unsafe fn rdmsr(msr: u32) -> (u32, u32) {
+unsafe fn rdmsr(addr: u32) -> (u32, u32) {
     let lo: u32;
-    let hi: u32;
+    let _hi: u32;
     asm!(
         "rdmsr",
-        in("ecx") msr,
+        in("ecx") addr,
         out("eax") lo,
-        out("edx") hi,
+        out("edx") _hi,
         options(nostack, nomem)
     );
-    (lo, hi)
+    (lo, _hi)
+}
+
+// ── EMA helper — exact formula from spec ──────────────────────────────────────
+
+#[inline]
+fn ema(old: u16, new_val: u16) -> u16 {
+    ((old as u32).wrapping_mul(7).saturating_add(new_val as u32) / 8) as u16
+}
+
+// ── Signal computation ────────────────────────────────────────────────────────
+
+/// Scale a raw u16 value to the 0–1000 range:
+///   scaled = raw * 1000 / 65535, capped at 1000.
+#[inline]
+fn scale_u16(raw: u32) -> u16 {
+    let s = raw.saturating_mul(1000) / 65535;
+    if s > 1000 { 1000 } else { s as u16 }
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/// Initialise the module — zero all signals.
 pub fn init() {
     let mut s = STATE.lock();
-    s.rmid_sense   = 0;
-    s.clos_sense   = 0;
-    s.rmid_nonzero = 0;
+    s.pqr_rmid     = 0;
+    s.pqr_cos_id   = 0;
+    s.pqr_isolated = 0;
     s.pqr_ema      = 0;
-    crate::serial_println!("[msr_ia32_pqr_assoc] init — IA32_PQR_ASSOC (0xC8D) module ready");
-}
-
-pub fn tick(age: u32) {
-    // Sample every 1000 ticks.
-    if age % 1000 != 0 {
-        return;
-    }
-
-    // CPUID guard — RDT monitoring must be available.
-    if !has_rdt() {
-        return;
-    }
-
-    // Read IA32_PQR_ASSOC MSR 0xC8D.
-    let (lo, hi) = unsafe { rdmsr(0xC8D) };
-
-    // rmid_sense: bits[9:0] of lo, scaled 0–1000.
-    // Multiply by 1000 then divide by 1024 (capacity of a 10-bit field).
-    let rmid_raw = lo & 0x3FF;                                  // 0–1023
-    let rmid_sense_u32 = (rmid_raw as u32) * 1000 / 1024;
-    let rmid_sense = if rmid_sense_u32 > 1000 { 1000u16 } else { rmid_sense_u32 as u16 };
-
-    // clos_sense: bits[1:0] of hi (== bits[33:32] of the 64-bit MSR), scaled 0–1000.
-    // 0→0, 1→333, 2→666, 3→999 — multiply by 333, cap at 1000.
-    let clos_raw = hi & 0x3;                                    // 0–3
-    let clos_sense_u32 = (clos_raw as u32) * 333;
-    let clos_sense = if clos_sense_u32 > 1000 { 1000u16 } else { clos_sense_u32 as u16 };
-
-    // rmid_nonzero: is RMID != 0?
-    let rmid_nonzero: u16 = if rmid_raw != 0 { 1000 } else { 0 };
-
-    // pqr_ema: composite = rmid_sense/2 + clos_sense/4 + rmid_nonzero/4
-    // All arithmetic in u32 to avoid overflow before the EMA step.
-    let composite_u32 = (rmid_sense as u32) / 2
-        + (clos_sense as u32) / 4
-        + (rmid_nonzero as u32) / 4;
-    let composite = if composite_u32 > 1000 { 1000u16 } else { composite_u32 as u16 };
-
-    let mut s = STATE.lock();
-
-    // EMA: (old * 7 + new_val) / 8 — computed in u32, cast to u16.
-    let ema_u32 = ((s.pqr_ema as u32) * 7 + (composite as u32)) / 8;
-    let pqr_ema = if ema_u32 > 1000 { 1000u16 } else { ema_u32 as u16 };
-
-    s.rmid_sense   = rmid_sense;
-    s.clos_sense   = clos_sense;
-    s.rmid_nonzero = rmid_nonzero;
-    s.pqr_ema      = pqr_ema;
-
     crate::serial_println!(
-        "[msr_ia32_pqr_assoc] age={} rmid={} clos={} nonzero={} ema={}",
-        age, rmid_sense, clos_sense, rmid_nonzero, pqr_ema
+        "[msr_ia32_pqr_assoc] init — IA32_PQR_ASSOC (0x{:03X}) module ready",
+        IA32_PQR_ASSOC
     );
 }
 
-// ── Getters ───────────────────────────────────────────────────────────────────
+/// Called every kernel tick. Samples every 2000 ticks when L3 CAT is present.
+pub fn tick(age: u32) {
+    if age % TICK_GATE != 0 {
+        return;
+    }
 
-pub fn get_rmid_sense() -> u16 {
-    STATE.lock().rmid_sense
+    // Hardware guard — skip silently on platforms without L3 CAT.
+    if !has_l3_cat() {
+        return;
+    }
+
+    // Read IA32_PQR_ASSOC (0xC8F).
+    // lo bits[31:16] = RMID, lo bits[15:0] = COS ID.
+    let (lo, _hi) = unsafe { rdmsr(IA32_PQR_ASSOC) };
+
+    // pqr_rmid: bits[31:16], scaled 0–1000.
+    let rmid_raw = (lo >> 16) & 0xFFFF;
+    let pqr_rmid = scale_u16(rmid_raw);
+
+    // pqr_cos_id: bits[15:0], scaled 0–1000.
+    let cos_raw = lo & 0xFFFF;
+    let pqr_cos_id = scale_u16(cos_raw);
+
+    // pqr_isolated: 1000 if lo != 0 (non-default QoS class active), else 0.
+    let pqr_isolated: u16 = if lo != 0 { 1000 } else { 0 };
+
+    // Composite for EMA: rmid/4 + cos_id/4 + isolated/2, capped at 1000.
+    let composite_u32 = (pqr_rmid as u32) / 4
+        + (pqr_cos_id as u32) / 4
+        + (pqr_isolated as u32) / 2;
+    let composite: u16 = if composite_u32 > 1000 { 1000 } else { composite_u32 as u16 };
+
+    let mut s = STATE.lock();
+
+    // pqr_ema: EMA((old*7 + new) / 8).
+    let pqr_ema = ema(s.pqr_ema, composite);
+
+    s.pqr_rmid     = pqr_rmid;
+    s.pqr_cos_id   = pqr_cos_id;
+    s.pqr_isolated = pqr_isolated;
+    s.pqr_ema      = pqr_ema;
+
+    crate::serial_println!(
+        "[msr_ia32_pqr_assoc] age={} lo=0x{:08x} rmid={} cos_id={} isolated={} ema={}",
+        age, lo, pqr_rmid, pqr_cos_id, pqr_isolated, pqr_ema
+    );
 }
 
-pub fn get_clos_sense() -> u16 {
-    STATE.lock().clos_sense
+// ── Accessors ─────────────────────────────────────────────────────────────────
+
+/// RMID (Resource Monitoring ID) from bits[31:16], scaled 0–1000.
+pub fn get_pqr_rmid() -> u16 {
+    STATE.lock().pqr_rmid
 }
 
-pub fn get_rmid_nonzero() -> u16 {
-    STATE.lock().rmid_nonzero
+/// COS ID (Class of Service ID) from bits[15:0], scaled 0–1000.
+pub fn get_pqr_cos_id() -> u16 {
+    STATE.lock().pqr_cos_id
 }
 
+/// 1000 if lo != 0 (non-default QoS class active), else 0.
+pub fn get_pqr_isolated() -> u16 {
+    STATE.lock().pqr_isolated
+}
+
+/// EMA of (rmid/4 + cos_id/4 + isolated/2).
 pub fn get_pqr_ema() -> u16 {
     STATE.lock().pqr_ema
 }
