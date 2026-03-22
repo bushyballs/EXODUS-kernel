@@ -996,3 +996,5 @@ pub mod msr_ia32_bios_sign_id;
 pub mod msr_ia32_sgx_svn_sinit;
 pub mod msr_ia32_cet_u;
 pub mod msr_ia32_s_cet;
+pub mod msr_ia32_pl0_ssp;
+pub mod msr_ia32_pred_cmd;
