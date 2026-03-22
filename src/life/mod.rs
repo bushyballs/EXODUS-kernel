@@ -960,3 +960,5 @@ pub mod msr_ia32_debugctl;
 pub mod msr_ia32_lbr_tos;
 pub mod msr_ia32_cr_pat;
 pub mod msr_ia32_sysenter_cs;
+pub mod msr_ia32_tsc_deadline;
+pub mod msr_ia32_x2apic_version;

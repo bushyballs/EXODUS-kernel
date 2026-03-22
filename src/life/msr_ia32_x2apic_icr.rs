@@ -1,122 +1,37 @@
 #![allow(dead_code)]
-
+use core::arch::asm;
 use crate::sync::Mutex;
 use crate::serial_println;
 
-const MSR_IA32_X2APIC_ICR: u32 = 0x830;
-const TICK_GATE: u32 = 800;
+struct State { ipi_pending: u16, ipi_delivery_mode: u16, ipi_dest_shorthand: u16, ipi_activity_ema: u16 }
+static MODULE: Mutex<State> = Mutex::new(State { ipi_pending:0, ipi_delivery_mode:0, ipi_dest_shorthand:0, ipi_activity_ema:0 });
 
-pub struct State {
-    icr_vector:        u16,
-    icr_delivery_mode: u16,
-    icr_pending:       u16,
-    icr_ema:           u16,
-}
-
-pub static MODULE: Mutex<State> = Mutex::new(State {
-    icr_vector:        0,
-    icr_delivery_mode: 0,
-    icr_pending:       0,
-    icr_ema:           0,
-});
-
-// Returns true if the CPU supports x2APIC (CPUID leaf 1, ECX bit 21).
-fn x2apic_supported() -> bool {
+#[inline]
+fn has_x2apic() -> bool {
     let ecx: u32;
-    unsafe {
-        core::arch::asm!(
-            "push rbx",
-            "mov eax, 1",
-            "cpuid",
-            "mov {0:e}, ecx",
-            "pop rbx",
-            out(reg) ecx,
-            options(nostack, nomem),
-        );
-    }
+    unsafe { asm!("push rbx","cpuid","pop rbx", inout("eax") 1u32 => _, lateout("ecx") ecx, lateout("edx") _, options(nostack,nomem)); }
     (ecx >> 21) & 1 == 1
 }
 
-// Read the 64-bit IA32_X2APIC_ICR MSR and return (lo, hi).
-fn read_x2apic_icr() -> (u32, u32) {
-    let lo: u32;
-    let hi: u32;
-    unsafe {
-        core::arch::asm!(
-            "rdmsr",
-            in("ecx") MSR_IA32_X2APIC_ICR,
-            out("eax") lo,
-            out("edx") hi,
-            options(nostack, nomem),
-        );
-    }
-    (lo, hi)
-}
-
-fn ema(old: u16, new: u16) -> u16 {
-    ((old as u32).wrapping_mul(7).saturating_add(new as u32) / 8) as u16
-}
-
-pub fn init() {
-    serial_println!("[msr_ia32_x2apic_icr] init");
-    let mut s = MODULE.lock();
-    s.icr_vector        = 0;
-    s.icr_delivery_mode = 0;
-    s.icr_pending       = 0;
-    s.icr_ema           = 0;
-}
-
+pub fn init() { serial_println!("[msr_ia32_x2apic_icr] init"); }
 pub fn tick(age: u32) {
-    if age % TICK_GATE != 0 {
-        return;
-    }
-
-    if !x2apic_supported() {
-        serial_println!("[msr_ia32_x2apic_icr] x2APIC not supported, skipping");
-        return;
-    }
-
-    let (lo, _hi) = read_x2apic_icr();
-
-    // bits[7:0]: interrupt vector — scale 0–255 → 0–1000
-    let raw_vector = (lo & 0xFF) as u32;
-    let icr_vector = ((raw_vector * 1000) / 255).min(1000) as u16;
-
-    // bits[10:8]: delivery mode — scale 0–7 → 0–1000
-    let raw_mode = ((lo >> 8) & 0x7) as u32;
-    let icr_delivery_mode = ((raw_mode * 1000) / 7).min(1000) as u16;
-
-    // bit 12: delivery status (1 = send pending)
-    let icr_pending: u16 = if (lo >> 12) & 1 == 1 { 1000 } else { 0 };
-
+    if age % 2000 != 0 { return; }
+    if !has_x2apic() { return; }
+    let lo: u32; let hi: u32;
+    unsafe { asm!("rdmsr", in("ecx") 0x830u32, out("eax") lo, out("edx") hi, options(nostack, nomem)); }
+    let ipi_pending: u16 = if (lo >> 12) & 1 != 0 { 1000 } else { 0 };
+    let del_mode = (lo >> 8) & 0x7;
+    let ipi_delivery_mode = ((del_mode * 142).min(1000)) as u16;
+    let shorthand = (lo >> 18) & 0x3;
+    let ipi_dest_shorthand = ((shorthand * 333).min(1000)) as u16;
+    let _ = hi;
+    let composite = (ipi_pending as u32/3).saturating_add(ipi_delivery_mode as u32/3).saturating_add(ipi_dest_shorthand as u32/3);
     let mut s = MODULE.lock();
-    s.icr_vector        = icr_vector;
-    s.icr_delivery_mode = icr_delivery_mode;
-    s.icr_pending       = icr_pending;
-    s.icr_ema           = ema(s.icr_ema, icr_vector);
-
-    serial_println!(
-        "[msr_ia32_x2apic_icr] age={} vector={} mode={} pending={} ema={}",
-        age,
-        s.icr_vector,
-        s.icr_delivery_mode,
-        s.icr_pending,
-        s.icr_ema,
-    );
+    let ipi_activity_ema = ((s.ipi_activity_ema as u32).wrapping_mul(7).saturating_add(composite)/8).min(1000) as u16;
+    s.ipi_pending=ipi_pending; s.ipi_delivery_mode=ipi_delivery_mode; s.ipi_dest_shorthand=ipi_dest_shorthand; s.ipi_activity_ema=ipi_activity_ema;
+    serial_println!("[msr_ia32_x2apic_icr] age={} pending={} del={} short={} ema={}", age, ipi_pending, ipi_delivery_mode, ipi_dest_shorthand, ipi_activity_ema);
 }
-
-pub fn get_icr_vector() -> u16 {
-    MODULE.lock().icr_vector
-}
-
-pub fn get_icr_delivery_mode() -> u16 {
-    MODULE.lock().icr_delivery_mode
-}
-
-pub fn get_icr_pending() -> u16 {
-    MODULE.lock().icr_pending
-}
-
-pub fn get_icr_ema() -> u16 {
-    MODULE.lock().icr_ema
-}
+pub fn get_ipi_pending()        -> u16 { MODULE.lock().ipi_pending }
+pub fn get_ipi_delivery_mode()  -> u16 { MODULE.lock().ipi_delivery_mode }
+pub fn get_ipi_dest_shorthand() -> u16 { MODULE.lock().ipi_dest_shorthand }
+pub fn get_ipi_activity_ema()   -> u16 { MODULE.lock().ipi_activity_ema }
