@@ -1039,3 +1039,7 @@ pub mod msr_ia32_lbr_from_14;
 pub mod msr_ia32_lbr_to_14;
 pub mod msr_ia32_lbr_from_15;
 pub mod msr_ia32_lbr_to_15;
+pub mod msr_ia32_pmc4;
+pub mod msr_ia32_pmc5;
+pub mod msr_ia32_pmc6;
+pub mod msr_ia32_pmc7;
