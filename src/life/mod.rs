@@ -1099,3 +1099,6 @@ pub mod msr_ia32_platform_energy_counter;
 pub mod msr_ia32_mperf;
 pub mod msr_ia32_aperf;
 pub mod msr_ia32_freq_ratio;
+pub mod msr_ia32_smrr_physbase;
+pub mod msr_ia32_smrr_physmask;
+pub mod msr_ia32_smm_monitor_ctl;
