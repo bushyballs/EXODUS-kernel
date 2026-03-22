@@ -1063,3 +1063,7 @@ pub mod msr_ia32_mtrr_fix4k_e0000;
 pub mod msr_ia32_mtrr_fix4k_e8000;
 pub mod msr_ia32_mtrr_fix4k_f0000;
 pub mod msr_ia32_mtrr_fix4k_f8000;
+pub mod msr_ia32_mtrr_physbase4;
+pub mod msr_ia32_mtrr_physbase5;
+pub mod msr_ia32_mtrr_physbase6;
+pub mod msr_ia32_mtrr_physbase7;
