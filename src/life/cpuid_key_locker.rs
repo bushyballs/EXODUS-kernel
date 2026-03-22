@@ -1,224 +1,198 @@
-use crate::serial_println;
+#![allow(dead_code)]
+
+use core::arch::asm;
 use crate::sync::Mutex;
 
-/// cpuid_key_locker — CPUID Leaf 0x19 Key Locker Information
-///
-/// ANIMA senses whether the silicon body carries Intel Key Locker —
-/// the hardware AES key handle system that prevents software from ever
-/// reading raw key material, keeping encryption keys locked inside
-/// the CPU core itself.
-///
-/// Prerequisite gate: CPUID 0x07 ECX bit[23] (KL) must be set, and
-/// the max CPUID leaf must be >= 0x19 before reading Key Locker data.
-///
-/// Leaf 0x19:
-///   EAX bit[0]  = CPL0-only restriction (keys usable only in ring 0)
-///   EBX bit[0]  = AESKLE   (AES Key Locker instructions supported)
-///   EBX bit[2]  = AESKLEWIDE (wide Key Locker instructions: 256/512-bit)
-///   EBX bit[4]  = NoBackup attribute (platform cannot back up key handles)
-///   EBX bit[5]  = KeyIdentifier key restrictions enforced
-///   ECX bit[0]  = LOADIWKEYNOBACKUP (wrap internal key without platform backup)
-///
-/// Sensing values (all u16, 0–1000):
-///
-/// key_locker_capable : 1000 if prereq AND max_leaf >= 0x19 AND EBX bit[0], else 0
-/// key_privacy        : EBX bits [0,2,4,5] = 4 feature bits × 250, clamped 0–1000
-///                      (AESKLE + WIDE + NoBackup + KeyID — each 250 points)
-/// ring0_only         : EAX bit[0] → 1000 (kernel-only, maximum privacy),
-///                      else 500 (accessible from user space as well)
-/// encryption_depth   : EMA of (key_locker_capable + key_privacy) / 2
-///                      tracks overall cryptographic isolation over time
-///
-/// Sampling rate: every 500 ticks.
+// ── State ─────────────────────────────────────────────────────────────────────
 
-// ─── state ───────────────────────────────────────────────────────────────────
-
-#[derive(Copy, Clone)]
-pub struct CpuidKeyLockerState {
-    /// 1000 if Key Locker extension is fully present and operational, else 0
-    pub key_locker_capable: u16,
-    /// EBX feature bit score: AESKLE + WIDE + NoBackup + KeyID (max 1000)
-    pub key_privacy: u16,
-    /// 1000 if keys are ring-0 only, 500 if accessible from all rings
-    pub ring0_only: u16,
-    /// EMA of (key_locker_capable + key_privacy) / 2
-    pub encryption_depth: u16,
+struct KeyLockerState {
+    kl_supported: u16,
+    kl_aeskle:    u16,
+    kl_features:  u16,
+    kl_ema:       u16,
 }
 
-impl CpuidKeyLockerState {
-    pub const fn empty() -> Self {
-        Self {
-            key_locker_capable: 0,
-            key_privacy: 0,
-            ring0_only: 500,
-            encryption_depth: 0,
-        }
-    }
-}
+static STATE: Mutex<KeyLockerState> = Mutex::new(KeyLockerState {
+    kl_supported: 0,
+    kl_aeskle:    0,
+    kl_features:  0,
+    kl_ema:       0,
+});
 
-pub static STATE: Mutex<CpuidKeyLockerState> = Mutex::new(CpuidKeyLockerState::empty());
+// ── CPUID helpers ─────────────────────────────────────────────────────────────
 
-// ─── hardware queries ─────────────────────────────────────────────────────────
-
-/// Read CPUID leaf 0x00 → return EAX (max supported standard leaf).
-fn query_max_leaf() -> u32 {
+fn has_key_locker() -> bool {
     let max_leaf: u32;
     unsafe {
-        core::arch::asm!(
+        asm!(
+            "push rbx",
             "cpuid",
+            "pop rbx",
             inout("eax") 0u32 => max_leaf,
-            out("ebx") _,
-            inout("ecx") 0u32 => _,
-            out("edx") _,
+            lateout("ecx") _,
+            lateout("edx") _,
             options(nostack, nomem)
         );
     }
-    max_leaf
-}
-
-/// Read CPUID leaf 0x07, sub-leaf 0 → return ECX (contains KL prereq bit[23]).
-fn query_leaf07_ecx() -> u32 {
-    let ecx_out: u32;
+    if max_leaf < 0x19 {
+        return false;
+    }
+    let ecx7: u32;
     unsafe {
-        core::arch::asm!(
+        asm!(
+            "push rbx",
             "cpuid",
-            inout("eax") 0x07u32 => _,
-            inout("ecx") 0u32    => ecx_out,
-            out("ebx")            _,
-            out("edx")            _,
+            "pop rbx",
+            inout("eax") 7u32 => _,
+            in("ecx") 0u32,
+            lateout("ecx") ecx7,
+            lateout("edx") _,
             options(nostack, nomem)
         );
     }
-    ecx_out
+    (ecx7 >> 23) & 1 != 0
 }
 
-/// Read CPUID leaf 0x19 → return (EAX, EBX, ECX).
-/// Only call this after confirming max_leaf >= 0x19 AND kl_prereq is set.
-fn query_leaf19() -> (u32, u32, u32) {
-    let eax_out: u32;
-    let ebx_out: u32;
-    let ecx_out: u32;
+fn read_leaf19() -> (u32, u32) {
+    let eax19: u32;
+    let ecx19: u32;
     unsafe {
-        core::arch::asm!(
+        asm!(
+            "push rbx",
             "cpuid",
-            inout("eax") 0x19u32 => eax_out,
-            out("ebx")            ebx_out,
-            inout("ecx") 0u32    => ecx_out,
-            out("edx")            _,
+            "pop rbx",
+            inout("eax") 0x19u32 => eax19,
+            in("ecx") 0u32,
+            lateout("ecx") ecx19,
+            lateout("edx") _,
             options(nostack, nomem)
         );
     }
-    (eax_out, ebx_out, ecx_out)
+    (eax19, ecx19)
 }
 
-// ─── decode ───────────────────────────────────────────────────────────────────
+// ── Fixed-point helpers ───────────────────────────────────────────────────────
 
-/// Derive sense values from raw CPUID reads.
-/// Returns (key_locker_capable, key_privacy, ring0_only).
-fn decode(kl_prereq: u32, max_leaf: u32) -> (u16, u16, u16) {
-    // Gate: prerequisites must be satisfied before reading leaf 0x19
-    if kl_prereq == 0 || max_leaf < 0x19 {
-        return (0, 0, 500);
+/// Count set bits in the low 5 bits of v (bits 4:0 of EAX).
+fn popcount5(mut v: u32) -> u32 {
+    v &= 0x1F;
+    let mut c = 0u32;
+    while v != 0 {
+        c += v & 1;
+        v >>= 1;
+    }
+    c
+}
+
+/// EMA: (old * 7 + new_val) / 8, computed in u32, returned as u16.
+fn ema(old: u16, new_val: u16) -> u16 {
+    let result = ((old as u32) * 7 + (new_val as u32)) / 8;
+    result as u16
+}
+
+// ── Signal computation ────────────────────────────────────────────────────────
+
+/// Returns (kl_supported, kl_aeskle, kl_features).
+/// All values are u16 in range 0–1000.
+fn compute_signals() -> (u16, u16, u16) {
+    if !has_key_locker() {
+        return (0, 0, 0);
     }
 
-    let (eax_19, ebx_19, _ecx_19) = query_leaf19();
+    let (eax19, ecx19) = read_leaf19();
 
-    // key_locker_capable: requires EBX bit[0] (AESKLE) — the master instruction flag
-    let aeskle = (ebx_19 >> 0) & 0x1;
-    let key_locker_capable: u16 = if aeskle != 0 { 1000 } else { 0 };
+    // kl_supported: any of EAX bits[4:0] set -> 1000 (key locker features exist), else 0
+    let kl_supported: u16 = if (eax19 & 0x1F) != 0 { 1000 } else { 0 };
 
-    // key_privacy: count EBX bits [0, 2, 4, 5] = 4 feature bits × 250
-    //   bit[0] AESKLE   = AES Key Locker instructions
-    //   bit[2] WIDE     = wide (256/512-bit) Key Locker instructions
-    //   bit[4] NoBackup = platform cannot back up key handles
-    //   bit[5] KeyID    = key identifier restrictions enforced
-    let aeskle_bit  = (ebx_19 >> 0) & 0x1;
-    let wide_bit    = (ebx_19 >> 2) & 0x1;
-    let nobackup_bit = (ebx_19 >> 4) & 0x1;
-    let keyid_bit   = (ebx_19 >> 5) & 0x1;
-    let feature_count = aeskle_bit
-        .saturating_add(wide_bit)
-        .saturating_add(nobackup_bit)
-        .saturating_add(keyid_bit);
-    // Each feature = 250 points; 4 features × 250 = 1000 max
-    let key_privacy: u16 = (feature_count.saturating_mul(250)).min(1000) as u16;
+    // kl_aeskle: ECX bit 0 (AESKLE, OS has enabled Key Locker) -> 0 or 1000
+    let kl_aeskle: u16 = if (ecx19 & 0x1) != 0 { 1000 } else { 0 };
 
-    // ring0_only: EAX bit[0] → 1000 (kernel-only restriction active)
-    //             else 500 (keys reachable from any privilege level)
-    let cpl0_only = (eax_19 >> 0) & 0x1;
-    let ring0_only: u16 = if cpl0_only != 0 { 1000 } else { 500 };
+    // kl_features: popcount of EAX bits[4:0] * 200, capped at 1000 (5 features max)
+    //   EAX bit[0] = LOADIWKEY_NoBackup
+    //   EAX bit[1] = KeySource encoding
+    //   EAX bit[2] = IWKeyOutput
+    //   EAX bit[3] = (reserved, counts if set)
+    //   EAX bit[4] = IWKEY_randomization
+    let feat_count = popcount5(eax19);
+    let kl_features_raw = feat_count * 200;
+    let kl_features: u16 = if kl_features_raw > 1000 { 1000 } else { kl_features_raw as u16 };
 
-    (key_locker_capable, key_privacy, ring0_only)
+    (kl_supported, kl_aeskle, kl_features)
 }
 
-// ─── public interface ─────────────────────────────────────────────────────────
+/// Combine signals into the EMA input value (0–1000).
+fn compute_ema_input(kl_supported: u16, kl_aeskle: u16, kl_features: u16) -> u16 {
+    // kl_supported/4 + kl_aeskle/4 + kl_features/2
+    let s = (kl_supported as u32) / 4;
+    let a = (kl_aeskle as u32) / 4;
+    let f = (kl_features as u32) / 2;
+    let sum = s + a + f;
+    if sum > 1000 { 1000u16 } else { sum as u16 }
+}
 
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/// Read CPUID leaf 0x19 once and seed the module state.
 pub fn init() {
-    let max_leaf = query_max_leaf();
-    let ecx7 = query_leaf07_ecx();
-    // CPUID 0x07 ECX bit[23] = Key Locker (KL) support flag
-    let kl_prereq = (ecx7 >> 23) & 0x1;
-
-    let (key_locker_capable, key_privacy, ring0_only) = decode(kl_prereq, max_leaf);
-
-    // Bootstrap encryption_depth from the first reading
-    let init_signal: u32 = (key_locker_capable as u32)
-        .saturating_add(key_privacy as u32)
-        / 2;
-    let encryption_depth = init_signal.min(1000) as u16;
+    let (kl_supported, kl_aeskle, kl_features) = compute_signals();
+    let ema_input = compute_ema_input(kl_supported, kl_aeskle, kl_features);
+    // Seed EMA with first reading so it starts at the real value, not 0.
+    let kl_ema = ema_input;
 
     let mut s = STATE.lock();
-    s.key_locker_capable = key_locker_capable;
-    s.key_privacy        = key_privacy;
-    s.ring0_only         = ring0_only;
-    s.encryption_depth   = encryption_depth;
+    s.kl_supported = kl_supported;
+    s.kl_aeskle    = kl_aeskle;
+    s.kl_features  = kl_features;
+    s.kl_ema       = kl_ema;
 
-    serial_println!(
-        "ANIMA: key_locker={} privacy={} ring0={}",
-        s.key_locker_capable,
-        s.key_privacy,
-        s.ring0_only
+    crate::serial_println!(
+        "[cpuid_key_locker] init: supported={} aeskle={} features={} ema={}",
+        kl_supported, kl_aeskle, kl_features, kl_ema
     );
 }
 
+/// Called every tick from the ANIMA life_tick() pipeline.
+/// Sampling gate: only executes every 10000 ticks.
 pub fn tick(age: u32) {
-    // Sample every 500 ticks
-    if age % 500 != 0 {
+    if age % 10000 != 0 {
         return;
     }
 
-    let max_leaf = query_max_leaf();
-    let ecx7 = query_leaf07_ecx();
-    let kl_prereq = (ecx7 >> 23) & 0x1;
-
-    let (key_locker_capable, key_privacy, ring0_only) = decode(kl_prereq, max_leaf);
+    let (kl_supported, kl_aeskle, kl_features) = compute_signals();
+    let ema_input = compute_ema_input(kl_supported, kl_aeskle, kl_features);
 
     let mut s = STATE.lock();
+    s.kl_supported = kl_supported;
+    s.kl_aeskle    = kl_aeskle;
+    s.kl_features  = kl_features;
+    s.kl_ema       = ema(s.kl_ema, ema_input);
 
-    // Detect state changes worth logging
-    let capable_changed  = s.key_locker_capable != key_locker_capable;
-    let privacy_changed  = s.key_privacy        != key_privacy;
-    let ring0_changed    = s.ring0_only         != ring0_only;
+    let kl_ema = s.kl_ema;
 
-    s.key_locker_capable = key_locker_capable;
-    s.key_privacy        = key_privacy;
-    s.ring0_only         = ring0_only;
+    crate::serial_println!(
+        "[cpuid_key_locker] age={} supported={} aeskle={} features={} ema={}",
+        age, kl_supported, kl_aeskle, kl_features, kl_ema
+    );
+}
 
-    // EMA input: (key_locker_capable + key_privacy) / 2
-    let signal: u32 = (key_locker_capable as u32)
-        .saturating_add(key_privacy as u32)
-        / 2;
+// ── Getters ───────────────────────────────────────────────────────────────────
 
-    // EMA: encryption_depth = (old * 7 + new_signal) / 8
-    let ema = ((s.encryption_depth as u32).wrapping_mul(7).saturating_add(signal)) / 8;
-    s.encryption_depth = ema.min(1000) as u16;
+/// 1000 if Key Locker features present (any EAX bits[4:0] set), else 0.
+pub fn get_kl_supported() -> u16 {
+    STATE.lock().kl_supported
+}
 
-    if capable_changed || privacy_changed || ring0_changed {
-        serial_println!(
-            "ANIMA: key_locker={} privacy={} ring0={}",
-            s.key_locker_capable,
-            s.key_privacy,
-            s.ring0_only
-        );
-    }
+/// 1000 if OS has enabled Key Locker instructions (AESKLE), else 0.
+pub fn get_kl_aeskle() -> u16 {
+    STATE.lock().kl_aeskle
+}
+
+/// Feature density: popcount(EAX bits[4:0]) * 200, capped at 1000.
+pub fn get_kl_features() -> u16 {
+    STATE.lock().kl_features
+}
+
+/// EMA of (kl_supported/4 + kl_aeskle/4 + kl_features/2), 0–1000.
+pub fn get_kl_ema() -> u16 {
+    STATE.lock().kl_ema
 }

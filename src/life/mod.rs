@@ -806,3 +806,6 @@ pub mod msr_ia32_hwp_status;
 pub mod msr_ia32_rtit_output_base;
 pub mod msr_ia32_rtit_cr3_match;
 pub mod msr_ia32_pebs_enable;
+pub mod msr_ia32_pmc2_sense;
+pub mod msr_ia32_perfevtsel2;
+pub mod msr_lbr_from0;
