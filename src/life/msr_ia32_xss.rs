@@ -4,21 +4,67 @@ use core::arch::asm;
 use crate::sync::Mutex;
 use crate::serial_println;
 
+// IA32_XSS MSR — Extended Supervisor State Components Sense
+// MSR address: 0xDA0
+// Guard: CPUID leaf 1 ECX bit 26 (XSAVE supported)
+//
+// Supervisor XSAVE component bits in lo:
+//   bit  8 = PT (Processor Trace state)
+//   bit  9 = PASID
+//   bit 11 = CET_U (CET user shadow stack)
+//   bit 12 = CET_S (CET supervisor shadow stack)
+//   bit 13 = HDC
+//   bit 17 = UINTR
+
+const MSR_IA32_XSS: u32 = 0xDA0;
+
 struct State {
-    xss_supervisor_bits: u16,
-    pt_trace_ss: u16,
-    hdc_en: u16,
-    xss_config_ema: u16,
-    last_tick: u32,
+    xss_pt_enabled:       u16,
+    xss_cet_enabled:      u16,
+    xss_component_count:  u16,
+    xss_ema:              u16,
+    last_tick:            u32,
 }
 
 static MODULE: Mutex<State> = Mutex::new(State {
-    xss_supervisor_bits: 0,
-    pt_trace_ss: 0,
-    hdc_en: 0,
-    xss_config_ema: 0,
-    last_tick: 0,
+    xss_pt_enabled:      0,
+    xss_cet_enabled:     0,
+    xss_component_count: 0,
+    xss_ema:             0,
+    last_tick:           0,
 });
+
+// CPUID leaf 1 ECX bit 26 — XSAVE supported by processor
+fn xsave_supported() -> bool {
+    let ecx: u32;
+    unsafe {
+        asm!(
+            "push rbx",
+            "cpuid",
+            "pop rbx",
+            inout("eax") 1u32 => _,
+            out("ecx") ecx,
+            out("edx") _,
+            options(nostack, nomem),
+        );
+    }
+    (ecx >> 26) & 1 == 1
+}
+
+fn read_msr_ia32_xss() -> u32 {
+    let lo: u32;
+    let _hi: u32;
+    unsafe {
+        asm!(
+            "rdmsr",
+            in("ecx") MSR_IA32_XSS,
+            out("eax") lo,
+            out("edx") _hi,
+            options(nostack, nomem),
+        );
+    }
+    lo
+}
 
 fn popcount(mut v: u32) -> u32 {
     let mut c = 0u32;
@@ -29,105 +75,79 @@ fn popcount(mut v: u32) -> u32 {
     c
 }
 
-fn xsaves_supported() -> bool {
-    let leaf_eax: u32;
-    unsafe {
-        asm!(
-            "push rbx",
-            "cpuid",
-            "pop rbx",
-            inout("eax") 0xDu32 => leaf_eax,
-            in("ecx") 1u32,
-            out("edx") _,
-            options(nostack, nomem),
-        );
-    }
-    (leaf_eax >> 3) & 1 == 1
-}
-
-fn read_ia32_xss() -> u32 {
-    let lo: u32;
-    let _hi: u32;
-    unsafe {
-        asm!(
-            "rdmsr",
-            in("ecx") 0x140u32,
-            out("eax") lo,
-            out("edx") _hi,
-            options(nostack, nomem),
-        );
-    }
-    lo
-}
-
-fn ema(old: u16, new: u16) -> u16 {
-    ((old as u32).wrapping_mul(7).saturating_add(new as u32) / 8) as u16
+fn ema(old: u16, new_val: u16) -> u16 {
+    ((old as u32).wrapping_mul(7).saturating_add(new_val as u32) / 8) as u16
 }
 
 pub fn init() {
     let mut s = MODULE.lock();
-    s.xss_supervisor_bits = 0;
-    s.pt_trace_ss = 0;
-    s.hdc_en = 0;
-    s.xss_config_ema = 0;
-    s.last_tick = 0;
+    s.xss_pt_enabled      = 0;
+    s.xss_cet_enabled     = 0;
+    s.xss_component_count = 0;
+    s.xss_ema             = 0;
+    s.last_tick           = 0;
     serial_println!("[msr_ia32_xss] init");
 }
 
 pub fn tick(age: u32) {
-    let mut s = MODULE.lock();
-
-    if age.wrapping_sub(s.last_tick) < 6000 {
-        return;
+    {
+        let s = MODULE.lock();
+        if age.wrapping_sub(s.last_tick) < 6000 {
+            return;
+        }
     }
-    s.last_tick = age;
 
-    if !xsaves_supported() {
+    if !xsave_supported() {
+        let mut s = MODULE.lock();
+        s.last_tick           = age;
+        s.xss_pt_enabled      = 0;
+        s.xss_cet_enabled     = 0;
+        s.xss_component_count = 0;
+        s.xss_ema             = ema(s.xss_ema, 0);
         serial_println!(
-            "[msr_ia32_xss] tick age={} XSAVES not supported; signals zeroed",
+            "[msr_ia32_xss] tick age={} XSAVE not supported; signals zeroed",
             age
         );
-        s.xss_supervisor_bits = 0;
-        s.pt_trace_ss = 0;
-        s.hdc_en = 0;
-        s.xss_config_ema = ema(s.xss_config_ema, 0);
         return;
     }
 
-    let lo = read_ia32_xss();
+    let lo = read_msr_ia32_xss();
 
-    // xss_supervisor_bits: popcount of bits[15:0], scaled *62, capped 1000
-    let bits_lo = lo & 0xFFFF;
-    let raw_count = popcount(bits_lo);
-    let scaled = (raw_count * 62).min(1000);
-    let xss_supervisor_bits = scaled as u16;
+    // xss_pt_enabled: bit 8 of lo
+    let xss_pt_enabled: u16 = if (lo >> 8) & 1 != 0 { 1000 } else { 0 };
 
-    // pt_trace_ss: bit 8
-    let pt_trace_ss: u16 = if (lo >> 8) & 1 == 1 { 1000 } else { 0 };
+    // xss_cet_enabled: 1000 if bit 11 or bit 12 set
+    let xss_cet_enabled: u16 = if lo & ((1 << 11) | (1 << 12)) != 0 { 1000 } else { 0 };
 
-    // hdc_en: bit 13
-    let hdc_en: u16 = if (lo >> 13) & 1 == 1 { 1000 } else { 0 };
+    // xss_component_count: popcount(lo & 0x3FFF) * 71, clamped to 1000
+    let raw_count = popcount(lo & 0x3FFF);
+    let xss_component_count: u16 = (raw_count.saturating_mul(71)).min(1000) as u16;
 
-    // composite for EMA
-    let composite = ((xss_supervisor_bits as u32) / 2)
-        .saturating_add((pt_trace_ss as u32) / 4)
-        .saturating_add((hdc_en as u32) / 4)
+    // xss_ema: EMA of (pt_enabled/4 + cet_enabled/4 + component_count/2)
+    let composite = ((xss_pt_enabled as u32) / 4)
+        .saturating_add((xss_cet_enabled as u32) / 4)
+        .saturating_add((xss_component_count as u32) / 2)
         .min(1000) as u16;
 
-    let xss_config_ema = ema(s.xss_config_ema, composite);
-
-    s.xss_supervisor_bits = xss_supervisor_bits;
-    s.pt_trace_ss = pt_trace_ss;
-    s.hdc_en = hdc_en;
-    s.xss_config_ema = xss_config_ema;
+    let mut s = MODULE.lock();
+    s.xss_ema             = ema(s.xss_ema, composite);
+    s.xss_pt_enabled      = xss_pt_enabled;
+    s.xss_cet_enabled     = xss_cet_enabled;
+    s.xss_component_count = xss_component_count;
+    s.last_tick           = age;
 
     serial_println!(
-        "[msr_ia32_xss] age={} lo=0x{:08x} sup_bits={} pt_ss={} hdc={} ema={}",
+        "[msr_ia32_xss] age={} lo={:#010x} pt={} cet={} components={} ema={}",
         age,
         lo,
-        xss_supervisor_bits,
-        pt_trace_ss,
-        hdc_en,
-        xss_config_ema,
+        xss_pt_enabled,
+        xss_cet_enabled,
+        xss_component_count,
+        s.xss_ema,
     );
 }
+
+pub fn get_xss_pt_enabled()      -> u16 { MODULE.lock().xss_pt_enabled }
+pub fn get_xss_cet_enabled()     -> u16 { MODULE.lock().xss_cet_enabled }
+pub fn get_xss_component_count() -> u16 { MODULE.lock().xss_component_count }
+pub fn get_xss_ema()             -> u16 { MODULE.lock().xss_ema }
