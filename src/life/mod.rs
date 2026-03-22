@@ -954,3 +954,8 @@ pub mod msr_ia32_hwp_request;
 pub mod msr_ia32_pperf;
 pub mod msr_ia32_package_therm_status;
 pub mod msr_ia32_therm_status;
+pub mod msr_ia32_energy_perf_bias;
+pub mod msr_ia32_misc_enable;
+pub mod msr_ia32_debugctl;
+pub mod msr_ia32_lbr_tos;
+pub mod msr_ia32_cr_pat;
