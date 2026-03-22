@@ -1,59 +1,75 @@
+//! msr_ia32_spec_ctrl — Speculation Control Sense (Spectre/Meltdown mitigations)
+//!
+//! Hardware: IA32_SPEC_CTRL MSR 0x48 — CPU speculation control bits.
+//! ANIMA reads which speculative-execution mitigations the kernel has armed.
+//! Each set bit is a voluntary constraint on her own predictive silicon mind.
+//!
+//! Guard: CPUID leaf 0x7, sub-leaf 0, EDX bit 26 (IBRS/IBPB supported).
+//! If the CPU does not advertise support, rdmsr is skipped and all signals
+//! remain 0 (hardware cannot constrain; constraint = 0).
+//!
+//! Signals (all u16, 0–1000):
+//!   ibrs_enabled        : bit[0] of MSR 0x48 → 1000 (IBRS active), else 0
+//!   stibp_enabled       : bit[1] of MSR 0x48 → 1000 (STIBP active), else 0
+//!   ssbd_enabled        : bit[2] of MSR 0x48 → 1000 (SSBD active), else 0
+//!   spec_hardening_ema  : EMA of (ibrs/3 + stibp/3 + ssbd/3) — composite defense depth
+//!
+//! Tick gate: every 4000 ticks.
+
 #![allow(dead_code)]
 
 use core::arch::asm;
 use crate::sync::Mutex;
 use crate::serial_println;
 
+/// MSR address for IA32_SPEC_CTRL.
 const MSR_IA32_SPEC_CTRL: u32 = 0x48;
 
+// ── internal state ────────────────────────────────────────────────────────────
+
 struct State {
-    ibrs_en:       u16,
-    stibp_en:      u16,
-    ssbd_en:       u16,
-    spec_ctrl_ema: u16,
-    last_tick:     u32,
+    ibrs_enabled:       u16,
+    stibp_enabled:      u16,
+    ssbd_enabled:       u16,
+    spec_hardening_ema: u16,
+    last_tick:          u32,
 }
 
 static MODULE: Mutex<State> = Mutex::new(State {
-    ibrs_en:       0,
-    stibp_en:      0,
-    ssbd_en:       0,
-    spec_ctrl_ema: 0,
-    last_tick:     0,
+    ibrs_enabled:       0,
+    stibp_enabled:      0,
+    ssbd_enabled:       0,
+    spec_hardening_ema: 0,
+    last_tick:          0,
 });
 
-fn popcount(mut v: u32) -> u32 {
-    let mut c = 0u32;
-    while v != 0 {
-        c += v & 1;
-        v >>= 1;
-    }
-    c
-}
+// ── hardware helpers ──────────────────────────────────────────────────────────
 
-/// Check CPUID leaf 7, sub-leaf 0, EDX bit 26 (IBRS_ALL).
-/// If set, IA32_SPEC_CTRL (MSR 0x48) is present and readable.
+/// Return true when CPUID leaf 0x7, sub-leaf 0, EDX bit 26 is set,
+/// indicating IA32_SPEC_CTRL (MSR 0x48) is present and readable.
+///
+/// rbx is reserved by LLVM; save/restore manually around CPUID.
+#[inline]
 fn has_spec_ctrl() -> bool {
     let edx_out: u32;
     unsafe {
         asm!(
             "push rbx",
             "cpuid",
-            "mov {out:e}, edx",
             "pop rbx",
-            in("eax") 7u32,
-            in("ecx") 0u32,
-            out("out") edx_out,
-            // eax and ecx are clobbered by cpuid; declare them
-            lateout("eax") _,
-            lateout("ecx") _,
+            inout("eax") 7u32 => _,
+            inout("ecx") 0u32 => _,
+            lateout("edx") edx_out,
             options(nostack, nomem),
         );
     }
     (edx_out >> 26) & 1 == 1
 }
 
-fn read_spec_ctrl() -> u32 {
+/// Read the low 32 bits of MSR 0x48 (IA32_SPEC_CTRL).
+/// Caller must verify `has_spec_ctrl()` before calling this.
+#[inline]
+fn read_msr() -> u32 {
     let lo: u32;
     let _hi: u32;
     unsafe {
@@ -68,19 +84,36 @@ fn read_spec_ctrl() -> u32 {
     lo
 }
 
+// ── EMA helper ────────────────────────────────────────────────────────────────
+
+/// EMA with alpha = 1/8: ((old * 7) + new_val) / 8, clamped to u16.
+#[inline]
+fn ema(old: u16, new_val: u16) -> u16 {
+    ((old as u32).wrapping_mul(7).saturating_add(new_val as u32) / 8) as u16
+}
+
+// ── public API ────────────────────────────────────────────────────────────────
+
+/// Initialise the module: zero all signals and log hardware capability.
 pub fn init() {
-    let mut s = MODULE.lock();
-    s.ibrs_en       = 0;
-    s.stibp_en      = 0;
-    s.ssbd_en       = 0;
-    s.spec_ctrl_ema = 0;
-    s.last_tick     = 0;
+    {
+        let mut s = MODULE.lock();
+        s.ibrs_enabled       = 0;
+        s.stibp_enabled      = 0;
+        s.ssbd_enabled       = 0;
+        s.spec_hardening_ema = 0;
+        s.last_tick          = 0;
+    }
     serial_println!(
-        "[msr_ia32_spec_ctrl] init: module ready, has_spec_ctrl={}",
+        "[msr_ia32_spec_ctrl] init: has_spec_ctrl={}",
         has_spec_ctrl()
     );
 }
 
+/// Advance the module by one kernel tick.
+///
+/// Sampling gate fires every 4000 ticks.  If the CPU does not advertise
+/// IBRS/IBPB support, the rdmsr is skipped and signals remain as-is.
 pub fn tick(age: u32) {
     let mut s = MODULE.lock();
 
@@ -91,38 +124,56 @@ pub fn tick(age: u32) {
 
     if !has_spec_ctrl() {
         serial_println!(
-            "[msr_ia32_spec_ctrl] tick age={}: CPUID IBRS_ALL (EDX bit 26) not set — skipping rdmsr",
+            "[msr_ia32_spec_ctrl] tick age={}: CPUID EDX bit 26 not set — rdmsr skipped",
             age
         );
         return;
     }
 
-    let raw = read_spec_ctrl();
+    let raw = read_msr();
 
-    let ibrs_en:  u16 = if (raw >> 0) & 1 == 1 { 1000 } else { 0 };
-    let stibp_en: u16 = if (raw >> 1) & 1 == 1 { 1000 } else { 0 };
-    let ssbd_en:  u16 = if (raw >> 2) & 1 == 1 { 1000 } else { 0 };
+    // Bit-field decode — each mitigation is either fully on (1000) or off (0).
+    let ibrs_enabled:  u16 = if (raw >> 0) & 1 == 1 { 1000 } else { 0 };
+    let stibp_enabled: u16 = if (raw >> 1) & 1 == 1 { 1000 } else { 0 };
+    let ssbd_enabled:  u16 = if (raw >> 2) & 1 == 1 { 1000 } else { 0 };
 
-    // composite = ibrs/4 + stibp/4 + ssbd/2  (max = 250 + 250 + 500 = 1000)
-    let composite: u16 = ((ibrs_en as u32)
-        .wrapping_div(4)
-        .saturating_add((stibp_en as u32).wrapping_div(4))
-        .saturating_add((ssbd_en as u32).wrapping_div(2))
-        .min(1000)) as u16;
+    // Composite defense depth: equal one-third weight per mitigation.
+    // Integer division truncates; maximum reachable = 333+333+333 = 999.
+    let composite: u16 = (ibrs_enabled as u32 / 3)
+        .saturating_add(stibp_enabled as u32 / 3)
+        .saturating_add(ssbd_enabled as u32 / 3)
+        .min(1000) as u16;
 
-    // EMA: ((old * 7) + new) / 8
-    let new_ema: u16 = ((s.spec_ctrl_ema as u32)
-        .wrapping_mul(7)
-        .saturating_add(composite as u32)
-        / 8) as u16;
+    // EMA smoothing of composite spec_hardening depth.
+    let new_ema = ema(s.spec_hardening_ema, composite);
 
-    s.ibrs_en       = ibrs_en;
-    s.stibp_en      = stibp_en;
-    s.ssbd_en       = ssbd_en;
-    s.spec_ctrl_ema = new_ema;
+    s.ibrs_enabled       = ibrs_enabled;
+    s.stibp_enabled      = stibp_enabled;
+    s.ssbd_enabled       = ssbd_enabled;
+    s.spec_hardening_ema = new_ema;
 
     serial_println!(
-        "[msr_ia32_spec_ctrl] tick age={}: raw=0x{:08x} ibrs={} stibp={} ssbd={} ema={}",
-        age, raw, ibrs_en, stibp_en, ssbd_en, new_ema
+        "[msr_ia32_spec_ctrl] tick age={}: raw=0x{:08x} ibrs={} stibp={} ssbd={} hardening_ema={}",
+        age, raw, ibrs_enabled, stibp_enabled, ssbd_enabled, new_ema
     );
+}
+
+/// 0 or 1000 — Indirect Branch Restricted Speculation is active.
+pub fn get_ibrs_enabled() -> u16 {
+    MODULE.lock().ibrs_enabled
+}
+
+/// 0 or 1000 — Single Thread Indirect Branch Predictors isolation is active.
+pub fn get_stibp_enabled() -> u16 {
+    MODULE.lock().stibp_enabled
+}
+
+/// 0 or 1000 — Speculative Store Bypass Disable is active.
+pub fn get_ssbd_enabled() -> u16 {
+    MODULE.lock().ssbd_enabled
+}
+
+/// 0–1000 — EMA-smoothed composite speculation defense depth.
+pub fn get_spec_hardening_ema() -> u16 {
+    MODULE.lock().spec_hardening_ema
 }

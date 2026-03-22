@@ -918,3 +918,8 @@ pub mod msr_ia32_aperf_sense;
 pub mod cpuid_sgx_support;
 pub mod msr_ia32_tsx_force_abort;
 pub mod msr_ia32_perf_global_inuse;
+pub mod cpuid_xsave_features;
+pub mod msr_ia32_core_capabilities;
+pub mod msr_ia32_hle_compat;
+pub mod msr_ia32_umwait_control;
+pub mod msr_ia32_pred_cmd_sense;
