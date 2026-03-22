@@ -1002,3 +1002,7 @@ pub mod msr_ia32_arch_capabilities;
 pub mod msr_ia32_xcomp_bv;
 pub mod msr_ia32_ppin_ctl;
 pub mod msr_ia32_ppin;
+pub mod msr_ia32_pkg_hdc_ctl;
+pub mod msr_ia32_pm_enable2;
+pub mod msr_ia32_sgxlepubkeyhash0;
+pub mod msr_ia32_sgxlepubkeyhash1;
