@@ -1079,3 +1079,7 @@ pub mod msr_ia32_vmx_true_pinbased_ctls;
 pub mod msr_ia32_vmx_true_procbased_ctls;
 pub mod msr_ia32_vmx_true_exit_ctls;
 pub mod msr_ia32_vmx_true_entry_ctls;
+pub mod msr_ia32_mtrr_physbase8;
+pub mod msr_ia32_mtrr_physbase9;
+pub mod msr_ia32_mtrr_physbase10;
+pub mod msr_ia32_mtrr_physbase11;
