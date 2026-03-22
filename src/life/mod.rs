@@ -1096,3 +1096,6 @@ pub mod msr_ia32_pkg_energy_status;
 pub mod msr_ia32_power_ctl2;
 pub mod msr_ia32_perf_global_status;
 pub mod msr_ia32_platform_energy_counter;
+pub mod msr_ia32_mperf;
+pub mod msr_ia32_aperf;
+pub mod msr_ia32_freq_ratio;
