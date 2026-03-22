@@ -1,184 +1,27 @@
 #![allow(dead_code)]
-
+use core::arch::asm;
 use crate::sync::Mutex;
+use crate::serial_println;
 
-// msr_ia32_lstar.rs — ANIMA Life Module
-//
-// Hardware: IA32_LSTAR MSR 0xC0000082
-//   64-bit SYSCALL target RIP — the kernel sets this to the virtual address of
-//   the syscall entry point.  In a properly configured long-mode kernel the
-//   upper 32 bits (hi) will equal 0xFFFFFFFF (kernel canonical address).
-//
-// Signals derived:
-//   lstar_lo     — address entropy from upper half of lo word (0-1000)
-//   lstar_hi     — lower 16 bits of hi word (0-1000)
-//   lstar_kernel — kernel-space sanity: 1000 if hi==0xFFFFFFFF, 500 if hi>0xFFFF0000, else 0
-//   lstar_ema    — 8-tap EMA of lstar_lo
-//
-// Guard: SYSCALL/SYSRET must be supported (CPUID 0x80000001 EDX bit 11,
-//        max extended leaf >= 0x80000001).
-//
-// Tick gate: every 15 000 ticks.
+struct State { lstar_set: u16, lstar_kernel_space: u16, lstar_canonical: u16, lstar_health_ema: u16 }
+static MODULE: Mutex<State> = Mutex::new(State { lstar_set:0, lstar_kernel_space:0, lstar_canonical:0, lstar_health_ema:0 });
 
-const MSR_IA32_LSTAR: u32 = 0xC000_0082;
-const TICK_GATE: u32 = 15_000;
-
-pub struct State {
-    pub lstar_lo:     u16,   // upper bits of lo word, scaled 0-1000
-    pub lstar_hi:     u16,   // lower 16 bits of hi word, scaled 0-1000
-    pub lstar_kernel: u16,   // kernel-space check: 0 / 500 / 1000
-    pub lstar_ema:    u16,   // EMA of lstar_lo
-}
-
-impl State {
-    const fn new() -> Self {
-        State {
-            lstar_lo:     0,
-            lstar_hi:     0,
-            lstar_kernel: 0,
-            lstar_ema:    0,
-        }
-    }
-}
-
-pub static MODULE: Mutex<State> = Mutex::new(State::new());
-
-// ── CPUID guard ─────────────────────────────────────────────────────────────
-
-fn has_syscall() -> bool {
-    let max_ext: u32;
-    unsafe {
-        core::arch::asm!(
-            "push rbx",
-            "cpuid",
-            "pop rbx",
-            inout("eax") 0x8000_0000u32 => max_ext,
-            out("ecx") _,
-            out("edx") _,
-            options(nostack, nomem)
-        );
-    }
-    if max_ext < 0x8000_0001 {
-        return false;
-    }
-    let edx: u32;
-    unsafe {
-        core::arch::asm!(
-            "push rbx",
-            "cpuid",
-            "pop rbx",
-            inout("eax") 0x8000_0001u32 => _,
-            out("ecx") _,
-            out("edx") edx,
-            options(nostack, nomem)
-        );
-    }
-    (edx >> 11) & 1 == 1
-}
-
-// ── MSR read ─────────────────────────────────────────────────────────────────
-
-fn read_lstar() -> (u32, u32) {
-    let lo: u32;
-    let hi: u32;
-    unsafe {
-        core::arch::asm!(
-            "rdmsr",
-            in("ecx") MSR_IA32_LSTAR,
-            out("eax") lo,
-            out("edx") hi,
-            options(nostack, nomem)
-        );
-    }
-    (lo, hi)
-}
-
-// ── Signal helpers ────────────────────────────────────────────────────────────
-
-// Scale a raw u16 value (0-65535) to 0-1000, integer only.
-fn scale_u16(val: u16) -> u16 {
-    ((val as u32).wrapping_mul(1000) / 65535).min(1000) as u16
-}
-
-// EMA: ((old * 7).saturating_add(new)) / 8
-fn ema(old: u16, new: u16) -> u16 {
-    ((old as u32).wrapping_mul(7).saturating_add(new as u32) / 8) as u16
-}
-
-// ── Public API ────────────────────────────────────────────────────────────────
-
-pub fn init() {
-    if !has_syscall() {
-        serial_println!("[msr_ia32_lstar] SYSCALL not supported — module passive");
-        return;
-    }
-    let (lo, hi) = read_lstar();
-    serial_println!(
-        "[msr_ia32_lstar] init: LSTAR lo=0x{:08X} hi=0x{:08X}",
-        lo, hi
-    );
-}
-
+pub fn init() { serial_println!("[msr_ia32_lstar] init"); }
 pub fn tick(age: u32) {
-    if age % TICK_GATE != 0 {
-        return;
-    }
-
-    if !has_syscall() {
-        return;
-    }
-
-    let (lo, hi) = read_lstar();
-
-    // lstar_lo: upper 16 bits of lo word, scaled 0-1000
-    let lo_raw = ((lo >> 16) & 0xFFFF) as u16;
-    let new_lo = scale_u16(lo_raw);
-
-    // lstar_hi: lower 16 bits of hi word, scaled 0-1000
-    let hi_raw = (hi & 0xFFFF) as u16;
-    let new_hi = scale_u16(hi_raw);
-
-    // lstar_kernel: canonical kernel-space check on full hi word
-    let new_kernel: u16 = if hi == 0xFFFF_FFFF {
-        1000
-    } else if hi > 0xFFFF_0000 {
-        500
-    } else {
-        0
-    };
-
-    let mut state = MODULE.lock();
-
-    state.lstar_lo     = new_lo;
-    state.lstar_hi     = new_hi;
-    state.lstar_kernel = new_kernel;
-    state.lstar_ema    = ema(state.lstar_ema, new_lo);
-
-    serial_println!(
-        "[msr_ia32_lstar] age={} lo=0x{:08X} hi=0x{:08X} \
-         sig_lo={} sig_hi={} kernel={} ema={}",
-        age, lo, hi,
-        state.lstar_lo,
-        state.lstar_hi,
-        state.lstar_kernel,
-        state.lstar_ema,
-    );
+    if age % 5000 != 0 { return; }
+    let lo: u32; let hi: u32;
+    unsafe { asm!("rdmsr", in("ecx") 0xC0000082u32, out("eax") lo, out("edx") hi, options(nostack, nomem)); }
+    let lstar_set: u16 = if lo != 0 || hi != 0 { 1000 } else { 0 };
+    let lstar_kernel_space: u16 = if (hi >> 16) == 0xFFFF { 1000 } else { 0 };
+    let hi_top = (hi >> 16) & 0xFFFF;
+    let lstar_canonical: u16 = if hi_top == 0xFFFF || hi_top == 0x0000 { 1000 } else { 0 };
+    let composite = (lstar_set as u32/3).saturating_add(lstar_kernel_space as u32/3).saturating_add(lstar_canonical as u32/3);
+    let mut s = MODULE.lock();
+    let lstar_health_ema = ((s.lstar_health_ema as u32).wrapping_mul(7).saturating_add(composite)/8).min(1000) as u16;
+    s.lstar_set=lstar_set; s.lstar_kernel_space=lstar_kernel_space; s.lstar_canonical=lstar_canonical; s.lstar_health_ema=lstar_health_ema;
+    serial_println!("[msr_ia32_lstar] age={} set={} kspace={} canonical={} ema={}", age, lstar_set, lstar_kernel_space, lstar_canonical, lstar_health_ema);
 }
-
-// ── Getters ───────────────────────────────────────────────────────────────────
-
-pub fn get_lstar_lo() -> u16 {
-    MODULE.lock().lstar_lo
-}
-
-pub fn get_lstar_hi() -> u16 {
-    MODULE.lock().lstar_hi
-}
-
-pub fn get_lstar_kernel() -> u16 {
-    MODULE.lock().lstar_kernel
-}
-
-pub fn get_lstar_ema() -> u16 {
-    MODULE.lock().lstar_ema
-}
+pub fn get_lstar_set()          -> u16 { MODULE.lock().lstar_set }
+pub fn get_lstar_kernel_space() -> u16 { MODULE.lock().lstar_kernel_space }
+pub fn get_lstar_canonical()    -> u16 { MODULE.lock().lstar_canonical }
+pub fn get_lstar_health_ema()   -> u16 { MODULE.lock().lstar_health_ema }

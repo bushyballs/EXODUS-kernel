@@ -1,170 +1,68 @@
 #![allow(dead_code)]
-
 use core::arch::asm;
 use crate::sync::Mutex;
+use crate::serial_println;
 
-// ── State ────────────────────────────────────────────────────────────────────
-
-struct TscAdjState {
-    tsc_adj_nonzero: u16,
-    tsc_adj_lo_sense: u16,
-    tsc_adj_hi_sense: u16,
-    tsc_adj_ema: u16,
-    supported: bool,
-    initialized: bool,
+struct State {
+    tsc_bias_present: u16,
+    tsc_bias_magnitude: u16,
+    tsc_bias_sign: u16,
+    tsc_adjust_ema: u16,
 }
 
-impl TscAdjState {
-    const fn new() -> Self {
-        Self {
-            tsc_adj_nonzero: 0,
-            tsc_adj_lo_sense: 0,
-            tsc_adj_hi_sense: 0,
-            tsc_adj_ema: 0,
-            supported: false,
-            initialized: false,
-        }
-    }
-}
+static MODULE: Mutex<State> = Mutex::new(State {
+    tsc_bias_present: 0,
+    tsc_bias_magnitude: 0,
+    tsc_bias_sign: 0,
+    tsc_adjust_ema: 0,
+});
 
-static STATE: Mutex<TscAdjState> = Mutex::new(TscAdjState::new());
+pub fn init() { serial_println!("[msr_ia32_tsc_adjust] init"); }
 
-// ── CPUID Guard ───────────────────────────────────────────────────────────────
+pub fn tick(age: u32) {
+    if age % 3000 != 0 { return; }
 
-fn has_tsc_adjust() -> bool {
-    let ebx_val: u32;
+    let lo: u32;
+    let hi: u32;
     unsafe {
         asm!(
-            "push rbx",
-            "cpuid",
-            "mov esi, ebx",
-            "pop rbx",
-            inout("eax") 7u32 => _,
-            in("ecx") 0u32,
-            out("esi") ebx_val,
-            lateout("ecx") _,
-            lateout("edx") _,
+            "rdmsr",
+            in("ecx") 0x3Bu32,
+            out("eax") lo,
+            out("edx") hi,
             options(nostack, nomem),
         );
     }
-    (ebx_val >> 1) & 1 != 0
+
+    // TSC_ADJUST is a 64-bit signed bias added to TSC
+    // 0 = no adjustment; non-zero = TSC was warped (migration, suspend, etc.)
+    let tsc_bias_present: u16 = if lo != 0 || hi != 0 { 1000 } else { 0 };
+
+    // Top bit of hi = sign bit
+    let tsc_bias_sign: u16 = if (hi >> 31) & 1 != 0 { 1000 } else { 0 };
+
+    // Magnitude: use high 10 bits of lo for scaling
+    let mag_raw = lo >> 22;
+    let tsc_bias_magnitude = mag_raw.min(1000) as u16;
+
+    let composite = (tsc_bias_present as u32 / 2)
+        .saturating_add(tsc_bias_magnitude as u32 / 4)
+        .saturating_add(tsc_bias_sign as u32 / 4);
+
+    let mut s = MODULE.lock();
+    let tsc_adjust_ema = ((s.tsc_adjust_ema as u32).wrapping_mul(7)
+        .saturating_add(composite) / 8).min(1000) as u16;
+
+    s.tsc_bias_present = tsc_bias_present;
+    s.tsc_bias_magnitude = tsc_bias_magnitude;
+    s.tsc_bias_sign = tsc_bias_sign;
+    s.tsc_adjust_ema = tsc_adjust_ema;
+
+    serial_println!("[msr_ia32_tsc_adjust] age={} present={} mag={} neg={} ema={}",
+        age, tsc_bias_present, tsc_bias_magnitude, tsc_bias_sign, tsc_adjust_ema);
 }
 
-// ── RDMSR 0x3B ───────────────────────────────────────────────────────────────
-
-/// Read IA32_TSC_ADJUST (MSR 0x3B).
-/// Returns (lo32, hi32) — the full 64-bit value split at the 32-bit boundary.
-unsafe fn rdmsr_tsc_adjust() -> (u32, u32) {
-    let lo: u32;
-    let hi: u32;
-    asm!(
-        "rdmsr",
-        in("ecx") 0x3Bu32,
-        out("eax") lo,
-        out("edx") hi,
-        options(nostack, nomem),
-    );
-    (lo, hi)
-}
-
-// ── Fixed-point helpers ───────────────────────────────────────────────────────
-
-/// Map a u16 value (full 16-bit range 0–65535) to 0–1000.
-/// Uses integer arithmetic: result = (val as u32 * 1000) / 65535
-#[inline(always)]
-fn u16_to_sense(val: u16) -> u16 {
-    ((val as u32 * 1000) / 65535) as u16
-}
-
-/// EMA: (old * 7 + new_val) / 8, computed in u32, cast to u16.
-#[inline(always)]
-fn ema(old: u16, new_val: u16) -> u16 {
-    ((old as u32 * 7 + new_val as u32) / 8) as u16
-}
-
-// ── Public API ────────────────────────────────────────────────────────────────
-
-pub fn init() {
-    let mut s = STATE.lock();
-    s.supported = has_tsc_adjust();
-    s.initialized = true;
-    crate::serial_println!(
-        "[msr_ia32_tsc_adjust] init supported={}",
-        s.supported
-    );
-}
-
-pub fn tick(age: u32) {
-    // Sample every 3000 ticks
-    if age % 3000 != 0 {
-        return;
-    }
-
-    let mut s = STATE.lock();
-
-    if !s.initialized {
-        return;
-    }
-
-    if !s.supported {
-        // TSC_ADJUST not supported; keep signals at zero
-        crate::serial_println!(
-            "[msr_ia32_tsc_adjust] age={} nonzero={} lo_sense={} hi_sense={} ema={}",
-            age,
-            s.tsc_adj_nonzero,
-            s.tsc_adj_lo_sense,
-            s.tsc_adj_hi_sense,
-            s.tsc_adj_ema,
-        );
-        return;
-    }
-
-    // Read IA32_TSC_ADJUST MSR 0x3B — we use lo only (bits [31:0])
-    let (lo, _hi) = unsafe { rdmsr_tsc_adjust() };
-
-    // tsc_adj_nonzero: 1000 if lo != 0, 0 if zero
-    let nonzero: u16 = if lo != 0 { 1000 } else { 0 };
-
-    // tsc_adj_lo_sense: low 16 bits of lo mapped to 0–1000
-    let lo_bits = (lo & 0x0000_FFFF) as u16;
-    let lo_sense = u16_to_sense(lo_bits);
-
-    // tsc_adj_hi_sense: bits [31:16] of lo mapped to 0–1000
-    let hi_bits = ((lo >> 16) & 0x0000_FFFF) as u16;
-    let hi_sense = u16_to_sense(hi_bits);
-
-    // tsc_adj_ema: EMA of nonzero signal
-    let ema_val = ema(s.tsc_adj_ema, nonzero);
-
-    s.tsc_adj_nonzero = nonzero;
-    s.tsc_adj_lo_sense = lo_sense;
-    s.tsc_adj_hi_sense = hi_sense;
-    s.tsc_adj_ema = ema_val;
-
-    crate::serial_println!(
-        "[msr_ia32_tsc_adjust] age={} nonzero={} lo_sense={} hi_sense={} ema={}",
-        age,
-        s.tsc_adj_nonzero,
-        s.tsc_adj_lo_sense,
-        s.tsc_adj_hi_sense,
-        s.tsc_adj_ema,
-    );
-}
-
-// ── Getters ───────────────────────────────────────────────────────────────────
-
-pub fn get_tsc_adj_nonzero() -> u16 {
-    STATE.lock().tsc_adj_nonzero
-}
-
-pub fn get_tsc_adj_lo_sense() -> u16 {
-    STATE.lock().tsc_adj_lo_sense
-}
-
-pub fn get_tsc_adj_hi_sense() -> u16 {
-    STATE.lock().tsc_adj_hi_sense
-}
-
-pub fn get_tsc_adj_ema() -> u16 {
-    STATE.lock().tsc_adj_ema
-}
+pub fn get_tsc_bias_present()   -> u16 { MODULE.lock().tsc_bias_present }
+pub fn get_tsc_bias_magnitude() -> u16 { MODULE.lock().tsc_bias_magnitude }
+pub fn get_tsc_bias_sign()      -> u16 { MODULE.lock().tsc_bias_sign }
+pub fn get_tsc_adjust_ema()     -> u16 { MODULE.lock().tsc_adjust_ema }

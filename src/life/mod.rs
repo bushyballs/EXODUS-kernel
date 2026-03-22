@@ -959,3 +959,4 @@ pub mod msr_ia32_misc_enable;
 pub mod msr_ia32_debugctl;
 pub mod msr_ia32_lbr_tos;
 pub mod msr_ia32_cr_pat;
+pub mod msr_ia32_sysenter_cs;
