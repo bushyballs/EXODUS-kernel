@@ -48,15 +48,14 @@ pub fn tick(age: u32) {
         );
     }
 
-    // bit 0: package thermal status (1 = throttle active)
+    // bit 0: Package thermal status
     let pkg_therm_throttle: u16 = if (lo & 1) != 0 { 1000 } else { 0 };
-    // bit 1: PROCHOT assertion
-    let pkg_prochot: u16 = if (lo >> 1) & 1 != 0 { 1000 } else { 0 };
-    // bits[22:16]: digital readout — degrees below Tjmax (0=at Tjmax/critical, 127=cold)
+    // bit 2: Package PROCHOT
+    let pkg_prochot: u16 = if (lo >> 2) & 1 != 0 { 1000 } else { 0 };
+    // bits[22:16]: degrees below Tjmax
     let readout = (lo >> 16) & 0x7F;
     let pkg_temp_margin = ((readout * 1000) / 127).min(1000) as u16;
 
-    // Composite thermal pressure: high = dangerous
     let pressure = (pkg_therm_throttle as u32 / 3)
         .saturating_add(pkg_prochot as u32 / 3)
         .saturating_add((1000u32).saturating_sub(pkg_temp_margin as u32) / 3);

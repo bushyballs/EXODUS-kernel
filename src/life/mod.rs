@@ -1088,3 +1088,5 @@ pub mod msr_ia32_pebs_frontend;
 pub mod msr_ia32_bts_buffer_base;
 pub mod msr_ia32_misc_feature_enables;
 pub mod msr_ia32_core_thread_count;
+pub mod msr_ia32_misc_feature_control;
+pub mod msr_ia32_ler_from_ip;
